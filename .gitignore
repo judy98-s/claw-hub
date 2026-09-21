@@ -21,3 +21,8 @@ out/
 .DS_Store
 .idea/
 .vscode/
+
+# 프론트 빌드 산출물
+web/node_modules/
+web/.next/
+web/next-env.d.ts

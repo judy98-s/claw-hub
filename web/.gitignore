@@ -1,0 +1,8 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# 빌드 시 node_modules 에서 생성된다 (scripts/setup-fonts.mjs)
+public/fonts/

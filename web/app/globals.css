@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+/* Pretendard 동적 서브셋은 layout.tsx 에서 <link> 로 불러온다.
+   여기서 @import 로 /public 경로를 가리키면 Lightning CSS 가 파일을
+   해석하지 못하고, 에러 없이 Tailwind 번들 전체가 빈 파일이 된다. */
+
+/*
+  디자인 토큰.
+
+  Design Read: 손님 신고 폼 for 길에서 이미 짜증난 일반 이용객,
+  사장님 대시보드 for 비기술 자영업자. trust-first · 모바일 우선 · 저마찰.
+
+  다이얼(taste-skill): 손님 폼 VARIANCE 4 / MOTION 3 / DENSITY 4,
+  대시보드 3 / 2 / 6. 둘 다 기본값(8/6/4)보다 낮다 — 돈과 개인정보가
+  오가고 사용자는 이미 화가 나 있다. 화려한 모션은 여기서 신뢰를 깎는다.
+
+  안티-디폴트: 보라 그라데이션, 다크 메시 히어로, 3개 균등 카드,
+  전면 글래스모피즘, Inter+slate-900 조합을 쓰지 않는다.
+  베이스는 중립 회색이 아니라 살짝 따뜻한 회색이고, 액센트는 LLM 기본값인
+  인디고/바이올렛/blue-600 대신 짙은 청록 한 색이다.
+*/
+@theme {
+  --font-sans: "Pretendard Variable", system-ui, -apple-system, sans-serif;
+
+  /* 따뜻한 중립 회색 */
+  --color-ink-50: #faf9f7;
+  --color-ink-100: #f2f0ec;
+  --color-ink-200: #e5e2dc;
+  --color-ink-300: #cdc8bf;
+  --color-ink-400: #a19a8e;
+  --color-ink-500: #7a7268;
+  --color-ink-600: #5c554d;
+  --color-ink-700: #443f39;
+  --color-ink-800: #2b2825;
+  --color-ink-900: #1a1917;
+  --color-ink-950: #0f0e0d;
+
+  /* 액센트: 짙은 청록. 상태색 3종(초록·앰버·빨강) 어느 것과도 겹치지 않는다. */
+  --color-accent-50: #eefbf8;
+  --color-accent-100: #d3f5ee;
+  --color-accent-500: #14897c;
+  --color-accent-600: #0f7167;
+  --color-accent-700: #0d5c54;
+  --color-accent-900: #0a3b36;
+
+  /* 상태색. 전부 배경 대비 4.5:1 이상 — 사장님이 햇빛 아래 폰으로 본다. */
+  --color-ok-50: #ecfdf5;
+  --color-ok-600: #047857;
+  --color-ok-700: #065f46;
+
+  --color-warn-50: #fffbeb;
+  --color-warn-600: #b45309;
+  --color-warn-700: #92400e;
+
+  --color-stop-50: #fef2f2;
+  --color-stop-600: #b91c1c;
+  --color-stop-700: #991b1b;
+
+  --radius-card: 0.75rem;
+}
+
+:root {
+  color-scheme: light;
+  --bg: var(--color-ink-50);
+  --fg: var(--color-ink-900);
+  --muted: var(--color-ink-500);
+  --line: var(--color-ink-200);
+  --surface: #ffffff;
+  --surface-sunken: var(--color-ink-100);
+
+  /* 상태 톤. 배지와 알림 상자가 쓴다. 다크에서 뒤집지 않으면 어두운
+     카드 위에 크림색 배지가 떠서 화면이 따로 논다. */
+  --tone-ok-bg: var(--color-ok-50);
+  --tone-ok-fg: var(--color-ok-700);
+  --tone-warn-bg: var(--color-warn-50);
+  --tone-warn-fg: var(--color-warn-700);
+  --tone-stop-bg: var(--color-stop-50);
+  --tone-stop-fg: var(--color-stop-700);
+  --tone-accent-bg: var(--color-accent-50);
+  --tone-accent-fg: var(--color-accent-700);
+}
+
+/* 다크 모드. data-theme="light" 로 명시 고정한 경우는 제외한다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: var(--color-ink-950);
+    --fg: var(--color-ink-100);
+    --muted: var(--color-ink-400);
+    --line: var(--color-ink-800);
+    --surface: var(--color-ink-900);
+    --surface-sunken: var(--color-ink-800);
+
+    /* 다크에서는 배경을 어두운 틴트로, 글자를 밝게 뒤집는다.
+       대비는 라이트와 같은 기준(4.5:1)을 지킨다. */
+    --tone-ok-bg: #0c2b20;
+    --tone-ok-fg: #6ee7b7;
+    --tone-warn-bg: #33240a;
+    --tone-warn-fg: #fcd34d;
+    --tone-stop-bg: #3b1214;
+    --tone-stop-fg: #fca5a5;
+    --tone-accent-bg: #0a302c;
+    --tone-accent-fg: #5eead4;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--color-ink-950);
+  --fg: var(--color-ink-100);
+  --muted: var(--color-ink-400);
+  --line: var(--color-ink-800);
+  --surface: var(--color-ink-900);
+  --surface-sunken: var(--color-ink-800);
+
+  /* 다크에서는 배경을 어두운 틴트로, 글자를 밝게 뒤집는다.
+     대비는 라이트와 같은 기준(4.5:1)을 지킨다. */
+  --tone-ok-bg: #0c2b20;
+  --tone-ok-fg: #6ee7b7;
+  --tone-warn-bg: #33240a;
+  --tone-warn-fg: #fcd34d;
+  --tone-stop-bg: #3b1214;
+  --tone-stop-fg: #fca5a5;
+  --tone-accent-bg: #0a302c;
+  --tone-accent-fg: #5eead4;
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  /* iOS에서 입력 포커스 시 페이지가 확대되지 않게 한다.
+     확대되면 손님이 폼을 채우다 길을 잃는다. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  /* 한글은 letter-spacing 을 좁히면 읽기 어려워진다. 기본값을 유지한다. */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 모션을 끈 사용자에게는 전부 끈다. MOTION 3~2 라 잃을 게 거의 없다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 키보드 사용자에게만 포커스 링을 보인다. */
+:focus-visible {
+  outline: 2px solid var(--color-accent-600);
+  outline-offset: 2px;
+}
+
+@utility surface {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
