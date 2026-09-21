@@ -58,7 +58,7 @@ func TestEvaluate_금액_경계값(t *testing.T) {
 	}{
 		{1, StatusPending, false},
 		{1999, StatusPending, false},
-		{9999, StatusPending, false},   // 임계 바로 아래
+		{9999, StatusPending, false},     // 임계 바로 아래
 		{10000, StatusNeedsReview, true}, // 임계 정확히 — 여기서 사진이 필수가 된다
 		{10001, StatusNeedsReview, true},
 		{999999, StatusNeedsReview, true},
@@ -96,10 +96,10 @@ func TestEvaluate_반복신고_경계값(t *testing.T) {
 		want  Status
 	}{
 		{1, StatusPending},
-		{2, StatusPending},      // watch 바로 아래
-		{3, StatusNeedsReview},  // watch 임계
+		{2, StatusPending},     // watch 바로 아래
+		{3, StatusNeedsReview}, // watch 임계
 		{4, StatusNeedsReview},
-		{5, StatusOnHold},       // hold 임계
+		{5, StatusOnHold}, // hold 임계
 		{9, StatusOnHold},
 	}
 	for _, tc := range tests {
@@ -136,7 +136,7 @@ func TestEvaluate_누적지급_경계값(t *testing.T) {
 	}{
 		{0, StatusPending},
 		{p.PayoutCeilingKRW - 1, StatusPending},
-		{p.PayoutCeilingKRW, StatusPending},     // 한도 정확히는 아직 통과
+		{p.PayoutCeilingKRW, StatusPending},         // 한도 정확히는 아직 통과
 		{p.PayoutCeilingKRW + 1, StatusNeedsReview}, // 초과부터 검토
 	}
 	for _, tc := range tests {
@@ -191,8 +191,8 @@ func TestEvaluate_빠른중복제출(t *testing.T) {
 func TestEvaluate_합성_우선순위는_가장_강한_상태가_이긴다(t *testing.T) {
 	// on_hold > needs_review > pending
 	r := eval(func(in *RiskInput) {
-		in.AmountKRW = 50000      // needs_review
-		in.PhoneClaims30d = 6     // on_hold
+		in.AmountKRW = 50000         // needs_review
+		in.PhoneClaims30d = 6        // on_hold
 		in.AccountDistinctPhones = 4 // needs_review
 	})
 	if r.Status != StatusOnHold {
