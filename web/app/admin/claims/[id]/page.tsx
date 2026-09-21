@@ -102,7 +102,7 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
     void load();
   }, [load]);
 
-  async function act(action: "approve" | "reject", note = "") {
+  async function act(action: "approve" | "reject" | "hold", note = "") {
     setBusy(true);
     try {
       await postWith(`/api/admin/claims/${id}/${action}`, { note }, token);
@@ -237,8 +237,13 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
               환불 보내기
             </Button>
           )}
+          {can("on_hold") && (
+            <Button variant="secondary" full loading={busy} onClick={() => void act("hold", "사장님 보류")}>
+              나중에 보기 (보류)
+            </Button>
+          )}
           {can("rejected") && (
-            <Button variant="secondary" full onClick={() => setConfirmReject(true)}>
+            <Button variant="ghost" full onClick={() => setConfirmReject(true)}>
               거절
             </Button>
           )}

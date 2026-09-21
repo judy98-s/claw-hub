@@ -53,6 +53,7 @@ type userResponse struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 	Name  string `json:"name"`
+	Phone string `json:"phone"`
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +79,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setSessionCookie(w, user.ID)
-	writeJSON(w, http.StatusOK, userResponse{ID: user.ID, Email: user.Email, Name: user.Name})
+	writeJSON(w, http.StatusOK, userResponse{ID: user.ID, Email: user.Email, Name: user.Name, Phone: user.Phone})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
@@ -88,7 +89,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := authUser(r.Context())
-	writeJSON(w, http.StatusOK, userResponse{ID: u.ID, Email: u.Email, Name: u.Name})
+	writeJSON(w, http.StatusOK, userResponse{ID: u.ID, Email: u.Email, Name: u.Name, Phone: u.Phone})
 }
 
 // access는 이 요청이 어떤 자격으로 들어왔는지다.

@@ -3,9 +3,26 @@ export function krw(n: number): string {
   return `${n.toLocaleString("ko-KR")}원`;
 }
 
-/** 전화번호를 "010-1234-5678" 로 만든다. */
+/**
+ * 전화번호에 하이픈을 넣는다. 휴대폰과 유선 둘 다 받는다.
+ *
+ * 매장 대표번호는 유선일 수 있어서(02-333-4444) 휴대폰 규칙만으로는
+ * 숫자가 그대로 노출된다. 023334444 를 보고 읽을 사장님은 없다.
+ */
 export function phone(raw: string): string {
   const d = raw.replace(/[^0-9]/g, "");
+  if (!d) return raw;
+
+  // 서울 02 는 국번이 2자리다
+  if (d.startsWith("02")) {
+    if (d.length === 9) return `02-${d.slice(2, 5)}-${d.slice(5)}`;
+    if (d.length === 10) return `02-${d.slice(2, 6)}-${d.slice(6)}`;
+    return raw;
+  }
+
+  // 1588 같은 대표번호는 8자리 4-4
+  if (d.length === 8 && /^1[5-9]/.test(d)) return `${d.slice(0, 4)}-${d.slice(4)}`;
+
   if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
   return raw;

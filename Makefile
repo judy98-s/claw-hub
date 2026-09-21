@@ -63,7 +63,7 @@ setup-account:
 	@test -n "$(STORE)"    || (echo "사용법: make setup-account STORE=매장이름 EMAIL=주소 PASSWORD=비밀번호" && exit 1)
 	@test -n "$(EMAIL)"    || (echo "EMAIL 이 필요합니다" && exit 1)
 	@test -n "$(PASSWORD)" || (echo "PASSWORD 가 필요합니다" && exit 1)
-	go run ./cmd/setup -store "$(STORE)" -email "$(EMAIL)" -password "$(PASSWORD)" -phone "$(PHONE)"
+	go run ./cmd/setup -store "$(STORE)" -email "$(EMAIL)" -password "$(PASSWORD)" -phone "$(PHONE)" -name "$(NAME)"
 
 test:
 	go test -race ./...

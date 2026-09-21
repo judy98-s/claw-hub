@@ -203,6 +203,15 @@ func (s *Server) handleReject(w http.ResponseWriter, r *http.Request) {
 	s.transition(w, r, domain.StatusRejected, nil)
 }
 
+// handleHold는 사장님이 직접 보류한다.
+//
+// 자동 보류(리스크 규칙)만 있으면 "지금 판단 못 하겠다, 전화해보고 정하자"를
+// 표현할 방법이 없다. 그러면 사장님은 접수함에 그냥 남겨두고, 다른 건과
+// 섞여 잊힌다.
+func (s *Server) handleHold(w http.ResponseWriter, r *http.Request) {
+	s.transition(w, r, domain.StatusOnHold, nil)
+}
+
 func (s *Server) handleMarkPaid(w http.ResponseWriter, r *http.Request) {
 	s.transition(w, r, domain.StatusPaid, func(c *domain.Claim, req transitionRequest) error {
 		// 어떤 경로로 보냈는지 반드시 기록한다. 나중에 "이 건 진짜 보냈나"를

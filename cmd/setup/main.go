@@ -19,7 +19,7 @@ func main() {
 		storePhone = flag.String("phone", "", "매장 대표번호 (손님 에러 화면에 안내됨)")
 		email      = flag.String("email", "", "사장님 로그인 이메일 (필수)")
 		password   = flag.String("password", "", "비밀번호, 8자 이상 (필수)")
-		name       = flag.String("name", "사장님", "표시 이름")
+		name       = flag.String("name", "사장님", "표시 이름 (로그인 후 바꿀 수 있습니다)")
 	)
 	flag.Parse()
 
@@ -41,7 +41,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "매장 생성 실패:", err)
 		os.Exit(1)
 	}
-	user, err := a.Store.CreateUser(ctx, storeID, *email, *password, *name)
+	user, err := a.Store.CreateUser(ctx, storeID, *email, *password, *name, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "계정 생성 실패:", err)
 		os.Exit(1)

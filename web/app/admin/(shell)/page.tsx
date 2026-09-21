@@ -24,14 +24,15 @@ type ClaimSummary = {
 };
 
 /**
- * 탭 순서는 처리 순서다.
+ * 탭은 "내가 지금 뭘 해야 하나"로 나눈다.
  *
- * 기본 진입이 "확인 필요"인 이유: 사장님이 앱을 열었을 때 가장 먼저 봐야
- * 할 것은 판단이 필요한 건이다. 소액 대기 건은 한 번에 훑어도 된다.
+ * pending 과 needs_review 를 한 탭에 묶은 이유: 사장님 입장에서는 둘 다
+ * "내가 봐야 할 것"이다. 나눠두면 두 군데를 확인해야 하고, 한쪽을 잊는다.
+ * 고액·리스크 건이라는 구분은 없애지 않고 배지로 남겨서, 같은 목록 안에서
+ * 눈에 띄게 했다.
  */
 const TABS = [
-  { key: "needs_review", label: "확인 필요" },
-  { key: "pending", label: "대기" },
+  { key: "needs_review,pending", label: "처리 대기" },
   { key: "on_hold", label: "보류" },
   { key: "approved", label: "송금 대기" },
   { key: "paid,rejected", label: "완료" },
@@ -52,7 +53,11 @@ export default function InboxPage() {
         const res = await get<{ claims: ClaimSummary[] }>(
           `/api/admin/claims?status=${encodeURIComponent(status)}`,
         );
-        setClaims(res.claims ?? []);
+        // 확인이 필요한 건을 위로 올린다. 같은 목록에 섞어두면 소액
+        // 대기 건 사이에 고액 건이 묻힌다.
+        const rank = (c: ClaimSummary) =>
+          c.status === "needs_review" || c.riskReasons.length > 0 ? 0 : 1;
+        setClaims([...(res.claims ?? [])].sort((a, b) => rank(a) - rank(b)));
         setError("");
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {

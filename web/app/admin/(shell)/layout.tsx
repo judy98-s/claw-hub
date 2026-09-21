@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ClipboardText, GameController, UsersThree } from "@phosphor-icons/react/dist/ssr";
+import { ClipboardText, GameController, GearSix, UsersThree } from "@phosphor-icons/react/dist/ssr";
 
 const NAV = [
   { href: "/admin", label: "접수함", Icon: ClipboardText },
   { href: "/admin/machines", label: "기계", Icon: GameController },
   { href: "/admin/contacts", label: "연락처", Icon: UsersThree },
+  { href: "/admin/settings", label: "설정", Icon: GearSix },
 ];
 
 /**
@@ -27,7 +28,7 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
       {children}
 
       <nav className="fixed inset-x-0 bottom-0 border-t border-[var(--line)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)]">
-        <ul className="mx-auto grid max-w-lg grid-cols-3">
+        <ul className="mx-auto grid max-w-lg grid-cols-4">
           {NAV.map(({ href, label, Icon }) => (
             <li key={href}>
               <Link

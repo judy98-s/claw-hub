@@ -698,7 +698,7 @@ func TestAuthenticate(t *testing.T) {
 	s := newStore(t)
 	storeID, _ := fixture(t, s)
 
-	if _, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님"); err != nil {
+	if _, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님", "01011112222"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -722,7 +722,7 @@ func TestAuthenticate_반복실패하면_잠긴다(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	storeID, _ := fixture(t, s)
-	if _, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", ""); err != nil {
+	if _, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -778,4 +778,114 @@ func TestListMachines_7일_추이는_항상_7칸(t *testing.T) {
 	if list[0].Claims24h != 1 || list[0].OpenClaims != 1 {
 		t.Errorf("Claims24h=%d OpenClaims=%d", list[0].Claims24h, list[0].OpenClaims)
 	}
+}
+
+func TestUserProfile_수정과_직원추가(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	ownerAcct, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := s.UpdateUser(ctx, storeID, ownerAcct.ID, "손지영", "01099998888")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Name != "손지영" || updated.Phone != "01099998888" {
+		t.Errorf("수정 결과 = %+v", updated)
+	}
+
+	if _, err := s.CreateUser(ctx, storeID, "staff@example.com", "staffpass1", "김직원", ""); err != nil {
+		t.Fatal(err)
+	}
+	users, err := s.ListUsers(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 2 {
+		t.Errorf("계정 %d개, want 2", len(users))
+	}
+}
+
+func TestSetUserActive_비활성_계정은_로그인도_조회도_안된다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	if _, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님", ""); err != nil {
+		t.Fatal(err)
+	}
+	staff, err := s.CreateUser(ctx, storeID, "staff@example.com", "staffpass1", "김직원", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetUserActive(ctx, storeID, staff.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	// 비밀번호가 맞아도 들어올 수 없고, 에러는 계정이 없을 때와 같다.
+	if _, err := s.Authenticate(ctx, "staff@example.com", "staffpass1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("비활성 계정 로그인 에러 = %v, want ErrNotFound", err)
+	}
+	// 세션 쿠키가 남아 있어도 UserByID 에서 막힌다.
+	if _, err := s.UserByID(ctx, staff.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("비활성 계정 조회 에러 = %v", err)
+	}
+}
+
+func TestSetUserActive_마지막_계정은_막는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	only, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserActive(ctx, storeID, only.ID, false); err == nil {
+		t.Fatal("마지막 계정이 비활성화됐다 — 아무도 로그인하지 못한다")
+	}
+}
+
+func TestStoreDetail_수정(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	d, err := s.StoreByID(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "테스트 매장" || d.Phone != "0212345678" {
+		t.Errorf("매장 = %+v", d)
+	}
+
+	upd, err := s.UpdateStore(ctx, storeID, "채현이 매장", "023334444")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upd.Name != "채현이 매장" || upd.Phone != "023334444" {
+		t.Errorf("수정 결과 = %+v", upd)
+	}
+
+	// 손님 화면에도 바뀐 정보가 나가야 한다.
+	_, info, err := s.MachineByCode(ctx, mustMachineCode(t, s, storeID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Name != "채현이 매장" || info.Phone != "023334444" {
+		t.Errorf("손님 화면 매장 정보 = %+v", info)
+	}
+}
+
+func mustMachineCode(t *testing.T, s *Store, storeID string) string {
+	t.Helper()
+	list, err := s.ListMachines(context.Background(), storeID)
+	if err != nil || len(list) == 0 {
+		t.Fatalf("기계를 찾을 수 없다: %v", err)
+	}
+	return list[0].Code
 }

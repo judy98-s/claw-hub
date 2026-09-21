@@ -38,6 +38,13 @@ type Store interface {
 	CreateMachine(ctx context.Context, storeID, label, location string) (domain.Machine, error)
 	UpdateMachine(ctx context.Context, storeID, id, label, location string, active bool) error
 
+	UpdateUser(ctx context.Context, storeID, userID, name, phone string) (store.User, error)
+	ListUsers(ctx context.Context, storeID string) ([]store.User, error)
+	CreateUser(ctx context.Context, storeID, email, password, name, phone string) (store.User, error)
+	SetUserActive(ctx context.Context, storeID, userID string, active bool) error
+	StoreByID(ctx context.Context, id string) (store.StoreDetail, error)
+	UpdateStore(ctx context.Context, id, name, phone string) (store.StoreDetail, error)
+
 	ListContacts(ctx context.Context, storeID string) ([]store.ContactSummary, error)
 	SetContactStatus(ctx context.Context, storeID string, hash []byte, kind, status, note, by string) error
 	DailyStats(ctx context.Context, storeID string, from, to time.Time) ([]store.DailyStat, error)
@@ -119,6 +126,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/claims/{id}", s.claimScoped(s.handleClaimDetail))
 	mux.Handle("POST /api/admin/claims/{id}/approve", s.claimScoped(s.handleApprove))
 	mux.Handle("POST /api/admin/claims/{id}/reject", s.claimScoped(s.handleReject))
+	mux.Handle("POST /api/admin/claims/{id}/hold", s.claimScoped(s.handleHold))
 	mux.Handle("POST /api/admin/claims/{id}/mark-paid", s.claimScoped(s.handleMarkPaid))
 	mux.Handle("GET /api/admin/claims/{id}/payout-links", s.claimScoped(s.handlePayoutLinks))
 	mux.Handle("GET /api/admin/claims/{id}/photos/{photoId}", s.claimScoped(s.handlePhoto))
@@ -131,6 +139,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/contacts", s.authed(s.handleListContacts))
 	mux.Handle("PATCH /api/admin/contacts/{hash}", s.authed(s.handleSetContactStatus))
 	mux.Handle("GET /api/admin/stats/daily", s.authed(s.handleDailyStats))
+
+	mux.Handle("PATCH /api/admin/me", s.authed(s.handleUpdateMe))
+	mux.Handle("GET /api/admin/store", s.authed(s.handleGetStore))
+	mux.Handle("PATCH /api/admin/store", s.authed(s.handleUpdateStore))
+	mux.Handle("GET /api/admin/users", s.authed(s.handleListUsers))
+	mux.Handle("POST /api/admin/users", s.authed(s.handleCreateUser))
+	mux.Handle("PATCH /api/admin/users/{id}", s.authed(s.handleSetUserActive))
 
 	var h http.Handler = mux
 	h = withMaxBytes(maxRequestBytes, h)

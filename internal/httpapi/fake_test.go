@@ -28,7 +28,9 @@ type fakeStore struct {
 
 	facts domain.RiskInput
 
-	user store.User
+	user        store.User
+	users       []store.User
+	storeDetail store.StoreDetail
 
 	// 주입 가능한 실패
 	createErr error
@@ -37,13 +39,21 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		machines:  map[string]domain.Machine{},
-		claims:    map[string]store.ClaimDetail{},
-		byIdemKey: map[string]string{},
-		info:      store.StoreInfo{Name: "테스트 매장", Phone: "0212345678"},
-		facts:     domain.RiskInput{PhoneClaims30d: 1, AccountDistinctPhones: 1, ManualStatus: domain.ContactNormal},
-		user:      store.User{ID: "user-1", StoreID: "store-1", Email: "owner@example.com", Name: "사장님"},
+		machines:    map[string]domain.Machine{},
+		claims:      map[string]store.ClaimDetail{},
+		byIdemKey:   map[string]string{},
+		info:        store.StoreInfo{Name: "테스트 매장", Phone: "0212345678"},
+		facts:       domain.RiskInput{PhoneClaims30d: 1, AccountDistinctPhones: 1, ManualStatus: domain.ContactNormal},
+		user:        owner,
+		users:       []store.User{owner},
+		storeDetail: store.StoreDetail{ID: "store-1", Name: "테스트 매장", Phone: "0212345678"},
 	}
+}
+
+// owner는 기본 로그인 계정이다.
+var owner = store.User{
+	ID: "user-1", StoreID: "store-1", Email: "owner@example.com",
+	Name: "사장님", Phone: "01011112222", Active: true,
 }
 
 func (f *fakeStore) addMachine(code, label string) domain.Machine {
@@ -137,8 +147,12 @@ func (f *fakeStore) Authenticate(_ context.Context, email, password string) (sto
 }
 
 func (f *fakeStore) UserByID(_ context.Context, id string) (store.User, error) {
-	if id == f.user.ID {
-		return f.user, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.users {
+		if u.ID == id && u.Active {
+			return u, nil
+		}
 	}
 	return store.User{}, store.ErrNotFound
 }
@@ -229,6 +243,90 @@ func (f *fakeStore) UpdateMachine(_ context.Context, storeID, id, label, locatio
 		}
 	}
 	return store.ErrNotFound
+}
+
+func (f *fakeStore) UpdateUser(_ context.Context, storeID, userID, name, phone string) (store.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, u := range f.users {
+		if u.ID == userID && u.StoreID == storeID {
+			f.users[i].Name, f.users[i].Phone = name, phone
+			if u.ID == f.user.ID {
+				f.user.Name, f.user.Phone = name, phone
+			}
+			return f.users[i], nil
+		}
+	}
+	return store.User{}, store.ErrNotFound
+}
+
+func (f *fakeStore) ListUsers(_ context.Context, storeID string) ([]store.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []store.User{}
+	for _, u := range f.users {
+		if u.StoreID == storeID {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) CreateUser(_ context.Context, storeID, email, password, name, phone string) (store.User, error) {
+	if len(password) < 8 {
+		return store.User{}, errors.New("비밀번호는 8자 이상이어야 합니다")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.users {
+		if u.Email == email {
+			return store.User{}, errors.New("이미 등록된 이메일입니다")
+		}
+	}
+	u := store.User{
+		ID: fmt.Sprintf("user-%d", len(f.users)+1), StoreID: storeID,
+		Email: email, Name: name, Phone: phone, Active: true,
+	}
+	f.users = append(f.users, u)
+	return u, nil
+}
+
+func (f *fakeStore) SetUserActive(_ context.Context, storeID, userID string, active bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !active {
+		remaining := 0
+		for _, u := range f.users {
+			if u.StoreID == storeID && u.Active && u.ID != userID {
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			return errors.New("마지막 계정은 비활성화할 수 없습니다")
+		}
+	}
+	for i, u := range f.users {
+		if u.ID == userID && u.StoreID == storeID {
+			f.users[i].Active = active
+			return nil
+		}
+	}
+	return store.ErrNotFound
+}
+
+func (f *fakeStore) StoreByID(_ context.Context, id string) (store.StoreDetail, error) {
+	if id != "store-1" {
+		return store.StoreDetail{}, store.ErrNotFound
+	}
+	return f.storeDetail, nil
+}
+
+func (f *fakeStore) UpdateStore(_ context.Context, id, name, phone string) (store.StoreDetail, error) {
+	if id != "store-1" {
+		return store.StoreDetail{}, store.ErrNotFound
+	}
+	f.storeDetail.Name, f.storeDetail.Phone = name, phone
+	return f.storeDetail, nil
 }
 
 func (f *fakeStore) ListContacts(context.Context, string) ([]store.ContactSummary, error) {
