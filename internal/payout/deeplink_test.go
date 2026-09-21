@@ -1,6 +1,7 @@
 package payout
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -179,5 +180,50 @@ func TestBanks_반환값을_바꿔도_원본이_안_바뀐다(t *testing.T) {
 	list[0].Name = "바뀜"
 	if Banks()[0].Name == "바뀜" {
 		t.Error("내부 슬라이스가 그대로 노출됐다")
+	}
+}
+
+func TestLinks_bankShort는_짧은_은행명을_넣는다(t *testing.T) {
+	// 토스 딥링크는 기관코드(004)도 정식명("국민은행")도 아닌 "국민" 을 받는다.
+	// 여기가 틀리면 앱이 열려도 은행이 선택되지 않는다.
+	d := NewDeeplink(map[string]string{
+		"toss": "supertoss://send?bank={bankShort}&accountNo={account}&amount={amount}",
+	})
+	r := req()
+	r.BankCode = "004" // 국민은행
+	links, err := d.Links(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(links[0].URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Query().Get("bank"); got != "국민" {
+		t.Errorf("bank = %q, want %q", got, "국민")
+	}
+}
+
+func TestBanks_Short가_전부_채워져있다(t *testing.T) {
+	// 비어 있으면 딥링크에 빈 은행명이 들어가 앱이 아무것도 못 고른다.
+	for _, b := range Banks() {
+		if strings.TrimSpace(b.Short) == "" {
+			t.Errorf("%s (%s): Short 가 비었다", b.Name, b.Code)
+		}
+	}
+}
+
+func TestBanks_Short는_JSON에_나가지_않는다(t *testing.T) {
+	// 손님 화면은 정식 명칭만 보면 된다. 딥링크용 축약형이 새면
+	// 프론트가 어느 쪽을 써야 할지 헷갈린다.
+	raw, err := json.Marshal(Banks()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "토스\"") && strings.Contains(string(raw), "Short") {
+		t.Errorf("Short 가 JSON 에 포함됐다: %s", raw)
+	}
+	if strings.Contains(string(raw), "Short") {
+		t.Errorf("Short 필드명이 JSON 에 있다: %s", raw)
 	}
 }

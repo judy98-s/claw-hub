@@ -60,10 +60,12 @@ func (d *Deeplink) Links(r Request) ([]Link, error) {
 		return []Link{}, nil
 	}
 
-	// 각 값을 URL 인코딩한다. 예금주는 한글이고 이름에 공백이 들어간다.
+	// 각 값을 URL 인코딩한다. 예금주와 은행명이 한글이고 이름에 공백이 들어간다.
 	repl := strings.NewReplacer(
 		"{bank}", url.QueryEscape(bank.Code),
 		"{bankName}", url.QueryEscape(bank.Name),
+		// 토스 딥링크가 받는 짧은 은행명. 기관코드도 정식명도 아니다.
+		"{bankShort}", url.QueryEscape(bank.Short),
 		"{account}", url.QueryEscape(account),
 		"{amount}", url.QueryEscape(strconv.Itoa(r.AmountKRW)),
 		"{holder}", url.QueryEscape(r.Holder),
