@@ -45,15 +45,16 @@ type Store interface {
 
 // Server는 의존성을 모아 라우터를 만든다.
 type Server struct {
-	cfg     config.Config
-	store   Store
-	cache   cache.Cache
-	media   media.Storage
-	notify  notify.Notifier
-	payout  payout.Payout
-	policy  domain.Policy
-	session *sessionCodec
-	now     func() time.Time
+	cfg        config.Config
+	store      Store
+	cache      cache.Cache
+	media      media.Storage
+	notify     notify.Notifier
+	payout     payout.Payout
+	policy     domain.Policy
+	session    *sessionCodec
+	claimToken *claimTokenCodec
+	now        func() time.Time
 }
 
 // Deps는 Server 생성에 필요한 것들이다.
@@ -85,8 +86,9 @@ func New(d Deps) *Server {
 			MaxAmountKRW:         p.MaxAmountKRW,
 			RapidDuplicateWindow: domain.DefaultPolicy().RapidDuplicateWindow,
 		},
-		session: newSessionCodec(d.Config.SessionSecret),
-		now:     now,
+		session:    newSessionCodec(d.Config.SessionSecret),
+		claimToken: newClaimTokenCodec(d.Config.SessionSecret),
+		now:        now,
 	}
 }
 
@@ -111,12 +113,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/logout", s.handleLogout)
 	mux.Handle("GET /api/admin/me", s.authed(s.handleMe))
 	mux.Handle("GET /api/admin/claims", s.authed(s.handleListClaims))
-	mux.Handle("GET /api/admin/claims/{id}", s.authed(s.handleClaimDetail))
-	mux.Handle("POST /api/admin/claims/{id}/approve", s.authed(s.handleApprove))
-	mux.Handle("POST /api/admin/claims/{id}/reject", s.authed(s.handleReject))
-	mux.Handle("POST /api/admin/claims/{id}/mark-paid", s.authed(s.handleMarkPaid))
-	mux.Handle("GET /api/admin/claims/{id}/payout-links", s.authed(s.handlePayoutLinks))
-	mux.Handle("GET /api/admin/photos/{id}", s.authed(s.handlePhoto))
+	// 아래 라우트들은 로그인 세션 또는 Slack 링크의 서명 토큰으로 들어온다.
+	// 토큰은 그 건 하나에만 통하므로, 링크가 새어도 다른 손님의 계좌는
+	// 열리지 않는다.
+	mux.Handle("GET /api/admin/claims/{id}", s.claimScoped(s.handleClaimDetail))
+	mux.Handle("POST /api/admin/claims/{id}/approve", s.claimScoped(s.handleApprove))
+	mux.Handle("POST /api/admin/claims/{id}/reject", s.claimScoped(s.handleReject))
+	mux.Handle("POST /api/admin/claims/{id}/mark-paid", s.claimScoped(s.handleMarkPaid))
+	mux.Handle("GET /api/admin/claims/{id}/payout-links", s.claimScoped(s.handlePayoutLinks))
+	mux.Handle("GET /api/admin/claims/{id}/photos/{photoId}", s.claimScoped(s.handlePhoto))
 
 	mux.Handle("GET /api/admin/machines", s.authed(s.handleListMachines))
 	mux.Handle("POST /api/admin/machines", s.authed(s.handleCreateMachine))

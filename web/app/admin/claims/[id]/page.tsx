@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, use } from "react";
+import { Suspense, useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, PhoneCall, X } from "@phosphor-icons/react";
 
-import { ApiError, get, post } from "@/lib/api";
+import { ApiError, getWith, postWith } from "@/lib/api";
 import { dateTime, krw, phone as fmtPhone } from "@/lib/format";
 import { Badge, toneForStatus } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,8 +37,40 @@ type ClaimDetail = {
 };
 
 export default function ClaimDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={<DetailSkeleton />}>
+      <ClaimDetail params={params} />
+    </Suspense>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <main className="mx-auto max-w-lg px-4 pt-6">
+      <div className="h-64 animate-pulse rounded-lg bg-[var(--surface-sunken)]" />
+    </main>
+  );
+}
+
+function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const search = useSearchParams();
+
+  /*
+    Slack 링크의 접근 토큰. 첫 로드에서 한 번 읽고 주소창에서 지운다.
+
+    남겨두면 새로고침·스크린샷·어깨너머로 계속 노출되고, 사장님이 주소를
+    복사해 누군가에게 보내는 순간 그 사람도 손님 계좌를 보게 된다.
+    이후 API 호출은 헤더로 보낸다.
+  */
+  const [token] = useState(() => search.get("t") ?? undefined);
+
+  useEffect(() => {
+    if (search.get("t")) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [search]);
 
   const [claim, setClaim] = useState<ClaimDetail | null>(null);
   const [error, setError] = useState("");
@@ -49,16 +81,22 @@ export default function ClaimDetailPage({ params }: { params: Promise<{ id: stri
 
   const load = useCallback(async () => {
     try {
-      setClaim(await get<ClaimDetail>(`/api/admin/claims/${id}`));
+      setClaim(await getWith<ClaimDetail>(`/api/admin/claims/${id}`, token));
       setError("");
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        // 링크로 들어왔는데 토큰이 만료·위조된 경우는 로그인해도 같은
+        // 건으로 못 가므로, 서버가 준 이유를 그대로 보여준다.
+        if (token) {
+          setError(err.message);
+          return;
+        }
         router.replace("/admin/login");
         return;
       }
       setError(err instanceof ApiError ? err.message : "불러오지 못했습니다.");
     }
-  }, [id, router]);
+  }, [id, router, token]);
 
   useEffect(() => {
     void load();
@@ -67,7 +105,7 @@ export default function ClaimDetailPage({ params }: { params: Promise<{ id: stri
   async function act(action: "approve" | "reject", note = "") {
     setBusy(true);
     try {
-      await post(`/api/admin/claims/${id}/${action}`, { note });
+      await postWith(`/api/admin/claims/${id}/${action}`, { note }, token);
       setConfirmReject(false);
       await load();
     } catch (err) {
@@ -95,12 +133,14 @@ export default function ClaimDetailPage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className="mx-auto max-w-lg px-4 pb-8 pt-4">
-      <Link
-        href="/admin"
-        className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--muted)]"
-      >
-        <ArrowLeft size={16} weight="bold" /> 접수함
-      </Link>
+      {!token && (
+        <Link
+          href="/admin"
+          className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--muted)]"
+        >
+          <ArrowLeft size={16} weight="bold" /> 접수함
+        </Link>
+      )}
 
       <header className="mb-4 grid gap-2">
         <div className="flex items-start justify-between gap-3">
@@ -134,7 +174,10 @@ export default function ClaimDetailPage({ params }: { params: Promise<{ id: stri
         {claim.photoIds.length > 0 && (
           <ul className="grid grid-cols-3 gap-2">
             {claim.photoIds.map((pid, i) => {
-              const src = `/api/admin/photos/${pid}?claimId=${claim.id}`;
+              // img 태그는 헤더를 못 붙이므로 사진만 쿼리로 토큰을 보낸다.
+              const src =
+                `/api/admin/claims/${claim.id}/photos/${pid}` +
+                (token ? `?t=${encodeURIComponent(token)}` : "");
               return (
                 <li key={pid}>
                   <button type="button" onClick={() => setZoom(src)} className="block w-full">
@@ -219,6 +262,7 @@ export default function ClaimDetailPage({ params }: { params: Promise<{ id: stri
       {payoutOpen && (
         <PayoutSheet
           claimId={claim.id}
+          token={token}
           onClose={() => setPayoutOpen(false)}
           onPaid={() => {
             setPayoutOpen(false);

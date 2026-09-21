@@ -17,7 +17,10 @@ import (
 // 접근 통제가 느슨하고, 알림은 검색·저장·전달된다. 사장님은 링크를 눌러
 // 대시보드에서 보면 되고, 그 열람은 감사 로그에 남는다.
 type ClaimNotice struct {
-	ClaimID      string
+	ClaimID string
+	// URL은 사장님이 누를 링크다. 서명된 접근 토큰이 붙어 있어 로그인
+	// 없이 그 건만 열린다. 비어 있으면 대시보드 주소로 떨어진다.
+	URL          string
 	MachineLabel string
 	IssueLabel   string
 	AmountKRW    int

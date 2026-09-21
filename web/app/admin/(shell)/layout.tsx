@@ -8,12 +8,20 @@ const NAV = [
 ];
 
 /**
- * 대시보드 셸.
+ * 대시보드 셸. 하단 탭 바를 붙인다.
  *
- * 하단 탭 바다. 사장님은 매장에서 폰으로 이걸 본다 — 사이드바는 좁은
- * 화면에서 접히고, 접힌 메뉴는 안 눌린다.
+ * `(shell)` 은 라우트 그룹이라 주소에 나타나지 않는다. 이 안에 있는 화면만
+ * 탭 바를 받는다.
+ *
+ * 로그인 화면과 신고 상세는 일부러 밖에 뒀다. 로그인 전에 누를 수 없는 탭을
+ * 보여줄 이유가 없고, 상세는 Slack 링크로 들어온 사람이 보는 화면이라 그
+ * 사람에게는 탭이 전부 로그인 화면으로 튕긴다. 눌리지 않는 버튼을 그리는
+ * 것보다 없는 게 낫다.
+ *
+ * 쿼리 파라미터를 보고 클라이언트에서 숨기는 방법도 있지만, 라우트 구조로
+ * 정하면 렌더 타이밍에 흔들리지 않는다.
  */
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function ShellLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-[100dvh] pb-[calc(4rem+env(safe-area-inset-bottom))]">
       {children}

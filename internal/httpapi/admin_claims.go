@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/judy98-s/claw-hub/internal/crypto"
 	"github.com/judy98-s/claw-hub/internal/domain"
 	"github.com/judy98-s/claw-hub/internal/payout"
 	"github.com/judy98-s/claw-hub/internal/store"
@@ -121,9 +120,9 @@ type eventResponse struct {
 }
 
 func (s *Server) handleClaimDetail(w http.ResponseWriter, r *http.Request) {
-	u := authUser(r.Context())
+	a := accessOf(r.Context())
 
-	d, err := s.store.ClaimByID(r.Context(), u.StoreID, r.PathValue("id"), actorOf(r.Context()))
+	d, err := s.store.ClaimByID(r.Context(), a.storeID, r.PathValue("id"), a.actor)
 	if errors.Is(err, store.ErrNotFound) {
 		// 남의 매장 건도 404다. 403을 주면 "그 ID는 존재한다"가 새어 나간다.
 		notFound(w, "신고 건을 찾을 수 없습니다.")
@@ -221,7 +220,7 @@ func (s *Server) handleMarkPaid(w http.ResponseWriter, r *http.Request) {
 func (s *Server) transition(w http.ResponseWriter, r *http.Request, to domain.Status,
 	extra func(*domain.Claim, transitionRequest) error,
 ) {
-	u := authUser(r.Context())
+	a := accessOf(r.Context())
 
 	var req transitionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
@@ -229,7 +228,7 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request, to domain.St
 		return
 	}
 
-	d, err := s.store.ClaimByID(r.Context(), u.StoreID, r.PathValue("id"), domain.Actor{})
+	d, err := s.store.ClaimByID(r.Context(), a.storeID, r.PathValue("id"), domain.Actor{})
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w, "신고 건을 찾을 수 없습니다.")
 		return
@@ -249,13 +248,13 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request, to domain.St
 		}
 	}
 
-	ev, err := c.Transition(to, actorOf(r.Context()), strings.TrimSpace(req.Note))
+	ev, err := c.Transition(to, a.actor, strings.TrimSpace(req.Note))
 	if err != nil {
 		writeError(w, http.StatusConflict, "invalid_transition", err.Error())
 		return
 	}
 
-	if err := s.store.ApplyTransition(r.Context(), u.StoreID, &c, ev); err != nil {
+	if err := s.store.ApplyTransition(r.Context(), a.storeID, &c, ev); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusConflict, "stale",
 				"다른 곳에서 이미 처리된 건입니다. 새로고침 후 다시 확인해주세요.")
@@ -282,9 +281,9 @@ type payoutLinksResponse struct {
 }
 
 func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
-	u := authUser(r.Context())
+	a := accessOf(r.Context())
 
-	d, err := s.store.ClaimByID(r.Context(), u.StoreID, r.PathValue("id"), actorOf(r.Context()))
+	d, err := s.store.ClaimByID(r.Context(), a.storeID, r.PathValue("id"), a.actor)
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w, "신고 건을 찾을 수 없습니다.")
 		return
@@ -321,19 +320,13 @@ func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
 
 // handlePhoto는 첨부 사진을 내려준다.
 //
-// 사진 ID를 알아도 그 매장 사장님이 아니면 못 본다. 사진에는 손님 얼굴이나
-// 매장 내부가 찍혀 있을 수 있다.
+// 경로가 /claims/{id}/photos/{photoId} 인 이유: claim id 가 경로에 있어야
+// 링크 토큰을 그 건에 묶어 검증할 수 있다. 사진 id 만으로는 어느 건의
+// 것인지 모르므로 토큰을 확인할 방법이 없다.
 func (s *Server) handlePhoto(w http.ResponseWriter, r *http.Request) {
-	u := authUser(r.Context())
-	photoID := r.PathValue("id")
+	a := accessOf(r.Context())
 
-	claimID := r.URL.Query().Get("claimId")
-	if claimID == "" {
-		badRequest(w, "claimId가 필요합니다.")
-		return
-	}
-
-	d, err := s.store.ClaimByID(r.Context(), u.StoreID, claimID, domain.Actor{})
+	d, err := s.store.ClaimByID(r.Context(), a.storeID, r.PathValue("id"), domain.Actor{})
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w, "사진을 찾을 수 없습니다.")
 		return
@@ -343,6 +336,7 @@ func (s *Server) handlePhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	photoID := r.PathValue("photoId")
 	var key string
 	for _, p := range d.Photos {
 		if p.ID == photoID {
@@ -372,6 +366,3 @@ func (s *Server) handlePhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
-
-// maskForLog는 로그에 남겨도 되는 형태로 줄인다.
-func maskForLog(phone string) string { return crypto.MaskPhone(phone) }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowSquareOut, Check, Copy, X } from "@phosphor-icons/react";
 
-import { ApiError, get, post } from "@/lib/api";
+import { ApiError, getWith, postWith } from "@/lib/api";
 import { krw } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 
@@ -31,10 +31,13 @@ type PayoutInfo = {
  */
 export function PayoutSheet({
   claimId,
+  token,
   onClose,
   onPaid,
 }: {
   claimId: string;
+  /** Slack 링크로 들어온 경우의 접근 토큰. 로그인 상태면 없다. */
+  token?: string;
   onClose: () => void;
   onPaid: () => void;
 }) {
@@ -46,12 +49,12 @@ export function PayoutSheet({
   const [returned, setReturned] = useState(false);
 
   useEffect(() => {
-    get<PayoutInfo>(`/api/admin/claims/${claimId}/payout-links`)
+    getWith<PayoutInfo>(`/api/admin/claims/${claimId}/payout-links`, token)
       .then(setInfo)
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : "송금 정보를 불러오지 못했습니다."),
       );
-  }, [claimId]);
+  }, [claimId, token]);
 
   async function copy(text: string) {
     try {
@@ -66,7 +69,7 @@ export function PayoutSheet({
   async function markPaid(method: "deeplink" | "manual") {
     setBusy(true);
     try {
-      await post(`/api/admin/claims/${claimId}/mark-paid`, { method });
+      await postWith(`/api/admin/claims/${claimId}/mark-paid`, { method }, token);
       onPaid();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "기록에 실패했습니다.");

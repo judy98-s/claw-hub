@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/judy98-s/claw-hub/internal/domain"
 )
@@ -389,7 +391,7 @@ func TestPhoto_캐시금지_헤더(t *testing.T) {
 		t.Fatalf("사진 %d장", len(d.PhotoIDs))
 	}
 
-	rec := h.do(http.MethodGet, "/api/admin/photos/"+d.PhotoIDs[0]+"?claimId="+id, "", c)
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+id+"/photos/"+d.PhotoIDs[0], "", c)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -401,11 +403,20 @@ func TestPhoto_캐시금지_헤더(t *testing.T) {
 	}
 }
 
-func TestPhoto_claimId_없으면_400(t *testing.T) {
+func TestPhoto_다른건의_사진ID는_404(t *testing.T) {
+	// 사진 ID 를 알아도 그 건에 속하지 않으면 못 본다.
 	h := newHarness(t)
 	c := h.login(t)
-	if rec := h.do(http.MethodGet, "/api/admin/photos/abc", "", c); rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
+	withPhoto := h.seedClaim(t, func(f *formOpts) { f.photos = [][]byte{jpeg(1000)} })
+	other := h.seedClaim(t, nil)
+
+	detail := h.do(http.MethodGet, "/api/admin/claims/"+withPhoto, "", c)
+	var d claimDetailResponse
+	json.Unmarshal(detail.Body.Bytes(), &d) //nolint:errcheck
+
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+other+"/photos/"+d.PhotoIDs[0], "", c)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
 
@@ -535,5 +546,199 @@ func TestListClaims_상태필터(t *testing.T) {
 	}
 	if rec := h.do(http.MethodGet, "/api/admin/claims?status=없는상태", "", c); rec.Code != http.StatusBadRequest {
 		t.Errorf("알 수 없는 상태 status = %d, want 400", rec.Code)
+	}
+}
+
+// ── Slack 링크 토큰 접근 ────────────────────────────────────────────────
+
+// linkFor는 그 건의 Slack 알림에 실린 접근 토큰을 꺼낸다.
+func (h *harness) linkFor(t *testing.T, claimID string) string {
+	t.Helper()
+	for _, n := range h.notify.claims {
+		if n.ClaimID == claimID {
+			if n.URL == "" {
+				t.Fatal("알림에 링크가 없다")
+			}
+			u, err := url.Parse(n.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tok := u.Query().Get("t")
+			if tok == "" {
+				t.Fatalf("링크에 토큰이 없다: %s", n.URL)
+			}
+			return tok
+		}
+	}
+	t.Fatalf("claim %s 의 알림을 찾을 수 없다", claimID)
+	return ""
+}
+
+// doToken은 로그인 없이 링크 토큰만으로 요청한다.
+func (h *harness) doToken(method, path, body, token string) *httptest.ResponseRecorder {
+	var r *http.Request
+	if body == "" {
+		r = httptest.NewRequest(method, path, nil)
+	} else {
+		r = httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+	}
+	r.Header.Set("X-Claim-Token", token)
+	rec := httptest.NewRecorder()
+	h.mux.ServeHTTP(rec, r)
+	return rec
+}
+
+func TestSlack알림에_서명된_링크가_실린다(t *testing.T) {
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+
+	n := h.notify.claims[0]
+	if !strings.Contains(n.URL, "/admin/claims/"+id) {
+		t.Errorf("링크가 그 건을 가리키지 않는다: %s", n.URL)
+	}
+	if !strings.Contains(n.URL, "?t=") {
+		t.Errorf("링크에 접근 토큰이 없다: %s", n.URL)
+	}
+}
+
+func TestToken_로그인없이_그건을_열고_처리한다(t *testing.T) {
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+	tok := h.linkFor(t, id)
+
+	rec := h.doToken(http.MethodGet, "/api/admin/claims/"+id, "", tok)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var d claimDetailResponse
+	json.Unmarshal(rec.Body.Bytes(), &d) //nolint:errcheck
+	if d.AccountNo != "3333011234567" {
+		t.Errorf("계좌가 안 보인다: %q", d.AccountNo)
+	}
+
+	// 승인 → 송금링크 → 송금기록까지 전부 로그인 없이 된다.
+	if rec := h.doToken(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", tok); rec.Code != http.StatusOK {
+		t.Fatalf("승인 status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if rec := h.doToken(http.MethodGet, "/api/admin/claims/"+id+"/payout-links", "", tok); rec.Code != http.StatusOK {
+		t.Errorf("송금링크 status = %d", rec.Code)
+	}
+	if rec := h.doToken(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid", `{"method":"manual"}`, tok); rec.Code != http.StatusOK {
+		t.Errorf("송금기록 status = %d", rec.Code)
+	}
+}
+
+func TestToken_다른_건에는_통하지_않는다(t *testing.T) {
+	// 링크가 새어도 피해가 한 건으로 묶여야 한다.
+	h := newHarness(t)
+	a := h.seedClaim(t, nil)
+	b := h.seedClaim(t, nil)
+	tokA := h.linkFor(t, a)
+
+	rec := h.doToken(http.MethodGet, "/api/admin/claims/"+b, "", tokA)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 — A의 토큰으로 B가 열렸다", rec.Code)
+	}
+	rec = h.doToken(http.MethodPost, "/api/admin/claims/"+b+"/approve", "{}", tokA)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("승인 status = %d, want 401", rec.Code)
+	}
+}
+
+func TestToken_대시보드_전체에는_닿지_않는다(t *testing.T) {
+	// 이것이 "건 하나만" 범위의 핵심이다. 링크를 가진 사람이 연락처
+	// 목록을 열 수 있으면 모든 손님의 번호가 새는 것과 같다.
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+	tok := h.linkFor(t, id)
+
+	for _, p := range []string{
+		"/api/admin/claims",
+		"/api/admin/contacts",
+		"/api/admin/machines",
+		"/api/admin/stats/daily",
+		"/api/admin/me",
+	} {
+		if rec := h.doToken(http.MethodGet, p, "", tok); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s status = %d, want 401", p, rec.Code)
+		}
+	}
+}
+
+func TestToken_위조와_변조는_거부된다(t *testing.T) {
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+	tok := h.linkFor(t, id)
+
+	for _, bad := range []string{
+		"", "garbage", tok + "x", "x" + tok,
+		strings.Replace(tok, ".", ".x", 1),
+	} {
+		rec := h.doToken(http.MethodGet, "/api/admin/claims/"+id, "", bad)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("토큰 %q 가 통과됐다: %d", bad, rec.Code)
+		}
+	}
+}
+
+func TestToken_만료되면_거부하고_이유를_알려준다(t *testing.T) {
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+
+	// 8일 전에 발급된 토큰 (유효기간 7일)
+	expired := h.server.claimToken.encode("store-1", id, time.Now().Add(-24*time.Hour))
+	rec := h.doToken(http.MethodGet, "/api/admin/claims/"+id, "", expired)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	var e errorBody
+	json.Unmarshal(rec.Body.Bytes(), &e) //nolint:errcheck
+	if !strings.Contains(e.Message, "만료") {
+		t.Errorf("만료임을 알려주지 않는다: %q", e.Message)
+	}
+}
+
+func TestToken_세션토큰을_링크토큰으로_쓸_수_없다(t *testing.T) {
+	// 둘이 같은 비밀키를 쓰므로 도메인 분리가 안 되면 혼동 공격이 가능하다.
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+	sessionValue := h.login(t).Value
+
+	rec := h.doToken(http.MethodGet, "/api/admin/claims/"+id, "", sessionValue)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("세션 토큰이 링크 토큰으로 통했다: %d", rec.Code)
+	}
+}
+
+func TestToken_쿼리스트링으로도_받는다(t *testing.T) {
+	// Slack 링크를 처음 누를 때의 진입 경로다.
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+	tok := h.linkFor(t, id)
+
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+id+"?t="+url.QueryEscape(tok), "", nil)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestToken_접근이_감사로그에_link로_남는다(t *testing.T) {
+	// 로그인 처리와 구분되어야 "누가 승인했나"를 나중에 따질 수 있다.
+	h := newHarness(t)
+	id := h.seedClaim(t, nil)
+	tok := h.linkFor(t, id)
+
+	if rec := h.doToken(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", tok); rec.Code != http.StatusOK {
+		t.Fatalf("승인 실패: %d", rec.Code)
+	}
+	c := h.store.claims[id]
+	if c.Status != domain.StatusApproved {
+		t.Fatalf("상태 = %s", c.Status)
+	}
+	// fakeStore 는 이벤트를 저장하지 않으므로 actor 종류만 확인한다.
+	rec := h.doToken(http.MethodGet, "/api/admin/claims/"+id, "", tok)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("상세 status = %d", rec.Code)
 	}
 }

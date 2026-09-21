@@ -63,11 +63,16 @@ func (s *Slack) ClaimCreated(ctx context.Context, n ClaimNotice) error {
 		body.WriteString(fmt.Sprintf("\n사진 %d장 첨부", n.PhotoCount))
 	}
 
+	link := n.URL
+	if link == "" {
+		link = fmt.Sprintf("%s/admin/claims/%s", s.baseURL, n.ClaimID)
+	}
+
 	msg := slackMessage{
 		Text: fmt.Sprintf("[%s] %s %s %s원", n.Status.Label(), n.MachineLabel, n.IssueLabel, comma(n.AmountKRW)),
 		Blocks: []slackBlock{
 			section(body.String()),
-			section(fmt.Sprintf("<%s/admin/claims/%s|대시보드에서 처리하기>", s.baseURL, n.ClaimID)),
+			section(fmt.Sprintf("<%s|열어서 처리하기>", link)),
 		},
 	}
 	return s.post(ctx, msg)

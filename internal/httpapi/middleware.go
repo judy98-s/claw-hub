@@ -16,6 +16,7 @@ type ctxKey int
 const (
 	ctxRequestID ctxKey = iota
 	ctxUser
+	ctxAccess
 )
 
 func requestIDOf(ctx context.Context) string {

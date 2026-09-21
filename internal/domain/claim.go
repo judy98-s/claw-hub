@@ -94,6 +94,10 @@ const (
 	ActorCustomer = "customer"
 	ActorOwner    = "owner"
 	ActorSystem   = "system"
+	// ActorLink는 Slack 알림 링크로 로그인 없이 들어온 경우다.
+	// 누가 눌렀는지는 알 수 없지만, 로그인 처리와 구분되어야 감사 로그가
+	// 사실을 말한다.
+	ActorLink = "link"
 )
 
 // 감사 로그에 남는 동작 종류.

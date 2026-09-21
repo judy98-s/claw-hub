@@ -232,7 +232,7 @@ func (s *Server) handleCreateClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.notifyClaimCreated(ctx, res, m.Label, in, risk, len(written))
+	s.notifyClaimCreated(ctx, res, m.StoreID, m.Label, in, risk, len(written))
 
 	writeJSON(w, http.StatusCreated, claimResponse{
 		ID: res.ID, ReceiptCode: receiptCode(res.ID),
@@ -243,11 +243,14 @@ func (s *Server) handleCreateClaim(w http.ResponseWriter, r *http.Request) {
 // notifyClaimCreated는 사장님에게 알린다.
 // 실패해도 접수는 이미 성공이다. 알림은 부가 경로이고 대시보드가 진실이다.
 func (s *Server) notifyClaimCreated(ctx context.Context, res store.CreateClaimResult,
-	machineLabel string, in claimForm, risk domain.RiskResult, photoCount int,
+	storeID, machineLabel string, in claimForm, risk domain.RiskResult, photoCount int,
 ) {
 	err := s.notify.ClaimCreated(ctx, notify.ClaimNotice{
-		ClaimID: res.ID, MachineLabel: machineLabel,
-		IssueLabel: in.issueType.Label(), AmountKRW: in.amountKRW,
+		ClaimID: res.ID,
+		// 서명된 접근 토큰이 붙은 링크. 사장님이 로그인 없이 이 건만 연다.
+		URL:          s.claimLinkURL(storeID, res.ID),
+		MachineLabel: machineLabel,
+		IssueLabel:   in.issueType.Label(), AmountKRW: in.amountKRW,
 		Status: risk.Status, RiskReasons: risk.Reasons,
 		PhotoCount: photoCount, CreatedAt: res.CreatedAt,
 	})

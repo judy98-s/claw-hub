@@ -56,6 +56,29 @@ export function get<T>(path: string): Promise<T> {
   return request<T>(path);
 }
 
+/**
+ * claimToken 은 Slack 링크로 들어온 사람의 접근 토큰이다.
+ *
+ * 헤더로 보낸다. 쿼리 문자열은 프록시 접근 로그와 Referer 헤더에 남기
+ * 쉬운데, 이 토큰 하나로 손님 계좌가 열린다. 첫 진입(Slack 링크 클릭)은
+ * 어쩔 수 없이 URL 이지만, 그 이후 호출까지 URL 에 실을 이유는 없다.
+ */
+function withToken(token?: string): HeadersInit | undefined {
+  return token ? { "X-Claim-Token": token } : undefined;
+}
+
+export function getWith<T>(path: string, token?: string): Promise<T> {
+  return request<T>(path, { headers: withToken(token) });
+}
+
+export function postWith<T>(path: string, body: Json, token?: string): Promise<T> {
+  return request<T>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(withToken(token) ?? {}) },
+    body: JSON.stringify(body),
+  });
+}
+
 export function post<T>(path: string, body?: Json): Promise<T> {
   return request<T>(path, {
     method: "POST",
