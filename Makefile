@@ -1,4 +1,4 @@
-.PHONY: help keys dev dev-down api worker web tunnel check-slack test test-integration check fmt vet build up down logs setup-account
+.PHONY: help keys dev dev-down api worker web web-deps tunnel check-slack test test-integration check fmt vet build up down logs setup-account
 
 TEST_DATABASE_URL ?= postgres://clawhub:clawhub@localhost:5432/clawhub?sslmode=disable
 
@@ -41,7 +41,16 @@ api:
 worker:
 	go run ./cmd/worker
 
-web:
+# web-deps 는 처음 한 번만 걸린다. 이게 없으면 새로 클론한 사람이
+# make web 에서 폰트 스크립트 실패를 보고, 저장소 루트에서 npm install 을
+# 돌렸다가 package.json 이 없다는 다른 에러를 또 만난다.
+web-deps:
+	@if [ ! -d web/node_modules ]; then \
+		echo "프론트 의존성을 설치합니다 (처음 한 번, 1~2분)..."; \
+		cd web && npm install; \
+	fi
+
+web: web-deps
 	cd web && npm run dev
 
 tunnel:

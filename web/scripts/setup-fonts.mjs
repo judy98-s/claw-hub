@@ -18,8 +18,18 @@ const src = resolve(root, "node_modules/pretendard/dist/web/variable");
 const outDir = resolve(root, "public/fonts");
 
 if (!existsSync(src)) {
+  // 어디서 실행하라는지 말해주지 않으면 저장소 루트에서 npm install 을
+  // 돌리게 되고, package.json 이 web/ 에 있으므로 ENOENT 가 난다.
   console.error(
-    "pretendard 패키지를 찾을 수 없습니다. `npm install` 을 먼저 실행하세요.",
+    [
+      "pretendard 패키지를 찾을 수 없습니다.",
+      "",
+      "  저장소 루트에서:   make web        (의존성을 자동으로 설치합니다)",
+      "  직접 설치하려면:   cd web && npm install",
+      "",
+      "  package.json 은 web/ 안에 있습니다. 저장소 루트에서 npm install 을",
+      "  실행하면 ENOENT 가 납니다.",
+    ].join("\n"),
   );
   process.exit(1);
 }

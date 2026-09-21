@@ -41,17 +41,38 @@
 
 ## 빠르게 돌려보기
 
-```bash
-make dev                      # postgres + redis 기동
-cp .env.example .env
-make keys                     # 출력된 키를 .env 에 붙여넣기
-make api                      # 다른 터미널에서
-make web                      # 또 다른 터미널에서
+필요한 것: Go 1.24+, Node 22+, Docker.
 
-make setup-account STORE="테스트 매장" EMAIL=owner@example.com PASSWORD=secret123
+```bash
+cp .env.example .env
+make keys                     # 출력된 값을 .env 에 붙여넣기
+make dev                      # postgres + redis 기동
+```
+
+터미널 세 개를 띄운다. `.env` 는 각 프로세스가 알아서 읽는다.
+
+```bash
+make api                      # 터미널 1
+make web                      # 터미널 2 — 처음이면 의존성을 자동 설치한다
+```
+
+```bash
+                              # 터미널 3
+make setup-account STORE="테스트 매장" PHONE="0212345678" \
+  EMAIL=owner@example.com PASSWORD=secret123
 ```
 
 `http://localhost:3000/admin/login` 에서 로그인 → 기계 등록 → QR 인쇄.
+
+**손님 폰에서도 열어보려면** 공개 주소가 필요하다. 폰이 `localhost` 를
+찍으면 자기 자신을 가리킨다.
+
+```bash
+make tunnel                   # 터미널 4 — cloudflared 필요
+```
+
+나온 주소를 `.env` 의 `PUBLIC_BASE_URL` 에 넣고 `make api` 를 다시 띄우면
+QR 과 Slack 링크가 그 주소로 만들어진다.
 
 배포는 [docs/DEPLOY.md](docs/DEPLOY.md).
 
