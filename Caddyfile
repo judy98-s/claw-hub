@@ -1,0 +1,34 @@
+# 단일 진입점.
+#
+# 브라우저는 항상 한 오리진만 본다. 세션 쿠키가 SameSite=Lax 라
+# 크로스 오리진으로 부르면 쿠키가 실리지 않는다.
+#
+# Next.js 의 rewrites 를 쓰지 않는 이유: rewrites 는 빌드 시점에
+# routes-manifest.json 으로 굳는다. next start 는 런타임 API_ORIGIN 을
+# 다시 읽지 않으므로, 백엔드 주소를 바꾸려면 이미지를 다시 빌드해야 한다.
+# 여기서 라우팅하면 환경변수만 고치면 된다.
+
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	# 사진 업로드가 16MB 까지 올 수 있다.
+	request_body {
+		max_size 20MB
+	}
+
+	handle /api/* {
+		reverse_proxy api:8080
+	}
+	handle /healthz {
+		reverse_proxy api:8080
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

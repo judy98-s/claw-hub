@@ -1,0 +1,31 @@
+# 로컬 개발용. Postgres 와 Redis 만 띄운다.
+# api 와 web 은 `go run` / `npm run dev` 로 직접 돌린다.
+#
+# 프로덕션 구성은 docker-compose.yml 이다. 그쪽은 비밀번호를 반드시
+# 요구하므로 여기 값이 프로덕션에 새지 않는다.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clawhub
+      POSTGRES_PASSWORD: clawhub
+      POSTGRES_DB: clawhub
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clawhub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

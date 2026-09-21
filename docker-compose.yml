@@ -1,11 +1,63 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      # 도메인을 넣으면 Caddy 가 Let's Encrypt 인증서를 자동으로 받는다.
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, web]
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://clawhub:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}@postgres:5432/clawhub?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      MEDIA_DIR: /data/photos
+      ADDR: ":8080"
+    volumes: ["media:/data"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    entrypoint: ["/worker"]
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://clawhub:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}@postgres:5432/clawhub?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      MEDIA_DIR: /data/photos
+    # api 와 같은 볼륨을 본다. 만료 사진을 지우려면 파일에 닿아야 한다.
+    volumes: ["media:/data"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  web:
+    build:
+      context: ./web
+    restart: unless-stopped
+    depends_on: [api]
+
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: clawhub
-      POSTGRES_PASSWORD: clawhub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}
       POSTGRES_DB: clawhub
-    ports: ["5432:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clawhub"]
@@ -15,7 +67,10 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    restart: unless-stopped
+    # 레이트리밋과 멱등성만 담는다. 잃어도 DB 제약이 받아내므로
+    # 영속화하지 않는다.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -24,3 +79,6 @@ services:
 
 volumes:
   pgdata:
+  media:
+  caddy_data:
+  caddy_config:

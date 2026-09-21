@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+
+# 의존성을 먼저 받아 레이어 캐시를 살린다.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+# CGO 없이 정적 링크해야 distroless 에서 뜬다.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api  ./cmd/api  && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/setup  ./cmd/setup
+
+# distroless: 셸도 패키지 매니저도 없다. 침입해도 쓸 도구가 없다.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/api /out/worker /out/setup /
+# 사진이 쌓이는 곳. compose 에서 볼륨을 붙인다.
+VOLUME ["/data"]
+USER nonroot:nonroot
+ENTRYPOINT ["/api"]
