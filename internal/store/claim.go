@@ -145,6 +145,15 @@ func (s *Store) CreateClaim(ctx context.Context, in CreateClaimInput) (CreateCla
 	return CreateClaimResult{}, ErrDuplicate
 }
 
+// ClaimByIdempotencyKey는 멱등키로 기존 접수를 찾는다.
+//
+// 접수 핸들러가 리스크 평가보다 먼저 이걸 본다. 재시도를 리스크 규칙이
+// 먼저 잡으면, 네트워크가 끊겨 다시 보낸 손님이 접수번호 대신 에러를
+// 받는다. 멱등키가 존재하는 이유가 바로 그 상황이다.
+func (s *Store) ClaimByIdempotencyKey(ctx context.Context, storeID, key string) (CreateClaimResult, bool, error) {
+	return s.claimByIdempotencyKey(ctx, storeID, key)
+}
+
 func (s *Store) claimByIdempotencyKey(ctx context.Context, storeID, key string) (CreateClaimResult, bool, error) {
 	var res CreateClaimResult
 	var status string
