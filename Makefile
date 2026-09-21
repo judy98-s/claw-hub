@@ -1,14 +1,16 @@
-.PHONY: help keys dev dev-down api worker web test test-integration check fmt vet build up down logs setup-account
+.PHONY: help keys dev dev-down api worker web tunnel check-slack test test-integration check fmt vet build up down logs setup-account
 
 TEST_DATABASE_URL ?= postgres://clawhub:clawhub@localhost:5432/clawhub?sslmode=disable
 
 help:
 	@echo "개발"
-	@echo "  make keys              암호화 키 3종 생성 (.env 에 붙여넣기)"
+	@echo "  make keys              암호화 키와 DB 비밀번호 생성 (.env 에 붙여넣기)"
 	@echo "  make dev               postgres + redis 기동"
 	@echo "  make api               API 서버 실행"
 	@echo "  make worker            워커 실행"
 	@echo "  make web               프론트 개발 서버 실행"
+	@echo "  make tunnel            공개 HTTPS 주소 붙이기 (손님 폰에서 접속)"
+	@echo "  make check-slack       Slack 웹훅이 살아 있는지 테스트 메시지 발송"
 	@echo "  make setup-account     첫 매장과 사장님 계정 생성"
 	@echo ""
 	@echo "검증"
@@ -41,6 +43,12 @@ worker:
 
 web:
 	cd web && npm run dev
+
+tunnel:
+	./scripts/dev-tunnel.sh
+
+check-slack:
+	./scripts/check-slack.sh
 
 setup-account:
 	@test -n "$(STORE)"    || (echo "사용법: make setup-account STORE=매장이름 EMAIL=주소 PASSWORD=비밀번호" && exit 1)
