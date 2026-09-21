@@ -229,8 +229,7 @@ machine_daily   machine_id, day, claim_count, paid_count, total_paid_krw
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/public/machines/{code}` | QR 코드 → 기계 정보(라벨/매장명). 없으면 404 |
-| `POST` | `/api/public/claims` | 신고 접수. 멱등성 키 헤더 필수 |
-| `POST` | `/api/public/claims/{id}/photos` | 사진 업로드 (multipart, 최대 5MB × 3장) |
+| `POST` | `/api/public/claims` | 신고 접수. `multipart/form-data`로 **필드와 사진을 한 요청에** 받는다. 멱등성 키 헤더 필수 |
 
 **관리자 (세션 인증)**
 
@@ -245,6 +244,15 @@ machine_daily   machine_id, day, claim_count, paid_count, total_paid_krw
 | `GET` | `/api/admin/machines/{id}/qr.png` | QR 이미지 (인쇄용) |
 | `GET` | `/api/admin/stats/daily` | 기계별/일자별 집계 |
 | `GET` | `/api/admin/contacts` · `PATCH` `/api/admin/contacts/{hash}` | 연락처 카운트 조회 / 수동 상태 변경 |
+
+**사진을 별도 API로 분리하지 않는 이유.** 접수와 사진 업로드를 두 요청으로 나누면
+"1만원 이상은 사진 필수" 규칙이 원자적으로 검증되지 않는다. 사진 없이 생성된 고액 건이
+DB에 남고, 손님이 두 번째 요청을 보내지 않으면 그대로 방치된다. 한 요청으로 받으면
+검증이 한 곳에서 끝나고 부분 상태가 존재하지 않는다.
+
+업로드 크기는 클라이언트가 책임진다. 제출 전 브라우저에서 긴 변 1600px · JPEG 품질 0.8로
+리사이즈하면 장당 약 300KB이므로, 3장이어도 1MB 미만이다. 서버는 그래도 장당 5MB ·
+최대 3장 · 요청 전체 16MB 상한을 강제한다.
 
 **멱등성.** 접수 API는 `Idempotency-Key` 헤더를 요구한다. 모바일 네트워크에서 제출 버튼이
 두 번 눌리거나 재시도가 발생해도 중복 환불이 생기면 안 된다. 키는 Redis에 24시간 보관하고,
