@@ -1,0 +1,23 @@
+# Go
+/bin/
+*.test
+*.out
+
+# 환경변수 — 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
+
+# 업로드된 사진 (개인정보)
+/data/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# 에디터/OS
+.DS_Store
+.idea/
+.vscode/
