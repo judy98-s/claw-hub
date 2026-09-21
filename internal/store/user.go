@@ -210,35 +210,88 @@ type StoreDetail struct {
 	ID    string
 	Name  string
 	Phone string
+
+	// 송금 설정. 사장님이 화면에서 정한다.
+	PayoutProvider string
+	PayoutTemplate string
+	PayoutBankCode string
+	// PayoutAccount는 사장님이 돈을 보내는 계좌다. 평문으로 오간다.
+	// 딥링크에 넣지 않는다 — 송금 앱은 출금 계좌를 URL 로 받지 않는다.
+	PayoutAccount string
 }
 
 // StoreByID는 매장 정보를 읽는다.
 func (s *Store) StoreByID(ctx context.Context, id string) (StoreDetail, error) {
 	var d StoreDetail
-	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, COALESCE(phone,'') FROM stores WHERE id=$1`, id,
-	).Scan(&d.ID, &d.Name, &d.Phone)
+	var accountEnc []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, name, COALESCE(phone,''),
+		       payout_provider, payout_template, payout_bank_code, payout_account_enc
+		  FROM stores WHERE id=$1`, id,
+	).Scan(&d.ID, &d.Name, &d.Phone,
+		&d.PayoutProvider, &d.PayoutTemplate, &d.PayoutBankCode, &accountEnc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoreDetail{}, ErrNotFound
 	}
-	return d, err
+	if err != nil {
+		return StoreDetail{}, fmt.Errorf("매장 조회: %w", err)
+	}
+	if len(accountEnc) > 0 {
+		if d.PayoutAccount, err = s.cipher.Decrypt(accountEnc); err != nil {
+			return StoreDetail{}, fmt.Errorf("출금 계좌 복호화: %w", err)
+		}
+	}
+	return d, nil
 }
 
 // UpdateStore는 매장 이름과 대표번호를 바꾼다.
 // 대표번호는 손님이 기계를 못 찾았을 때 안내되는 번호다.
 func (s *Store) UpdateStore(ctx context.Context, id, name, phone string) (StoreDetail, error) {
-	var d StoreDetail
-	err := s.pool.QueryRow(ctx, `
-		UPDATE stores SET name=$1, phone=$2 WHERE id=$3
-		 RETURNING id, name, COALESCE(phone,'')`, name, phone, id,
-	).Scan(&d.ID, &d.Name, &d.Phone)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return StoreDetail{}, ErrNotFound
-	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE stores SET name=$1, phone=$2 WHERE id=$3`, name, phone, id)
 	if err != nil {
 		return StoreDetail{}, fmt.Errorf("매장 수정: %w", err)
 	}
-	return d, nil
+	if tag.RowsAffected() == 0 {
+		return StoreDetail{}, ErrNotFound
+	}
+	return s.StoreByID(ctx, id)
+}
+
+// PayoutSettings는 사장님이 고른 송금 방식이다.
+type PayoutSettings struct {
+	Provider string
+	Template string
+	BankCode string
+	Account  string // 평문
+}
+
+// UpdatePayoutSettings는 송금 설정을 저장한다.
+//
+// 출금 계좌는 암호화해서 넣는다. 사장님 계좌도 개인정보이고, 손님 계좌와
+// 같은 기준으로 다루지 않을 이유가 없다.
+func (s *Store) UpdatePayoutSettings(ctx context.Context, id string, in PayoutSettings) (StoreDetail, error) {
+	var accountEnc []byte
+	if in.Account != "" {
+		enc, err := s.cipher.Encrypt(in.Account)
+		if err != nil {
+			return StoreDetail{}, fmt.Errorf("출금 계좌 암호화: %w", err)
+		}
+		accountEnc = enc
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE stores
+		   SET payout_provider=$1, payout_template=$2,
+		       payout_bank_code=$3, payout_account_enc=$4
+		 WHERE id=$5`, in.Provider, in.Template, in.BankCode, accountEnc, id)
+	if err != nil {
+		return StoreDetail{}, fmt.Errorf("송금 설정 저장: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return StoreDetail{}, ErrNotFound
+	}
+	return s.StoreByID(ctx, id)
 }
 
 // CreateStore는 매장을 만든다. 초기 설정에서 쓴다.

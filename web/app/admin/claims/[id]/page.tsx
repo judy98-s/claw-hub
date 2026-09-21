@@ -29,9 +29,20 @@ type ClaimDetail = {
   holder: string;
   callRecommended: boolean;
   photoIds: string[];
-  events: { actorKind: string; action: string; from: string; to: string; note: string; at: string }[];
+  events: {
+    actorKind: string;
+    actorName: string;
+    action: string;
+    from: string;
+    to: string;
+    note: string;
+    at: string;
+  }[];
   phoneClaims30d: number;
   phonePaidTotal30d: number;
+  approvedBy: string;
+  paidBy: string;
+  paidAmountKrw: number;
   createdAt: string;
   allowedTransitions: string[];
 };
@@ -201,6 +212,31 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
           </div>
         )}
 
+        {/*
+          누가 처리했는지. 직원이 여러 명이면 "승인됨" 배지만으로는
+          아무것도 알 수 없고, 돈이 오가는 기록에서 그건 빈칸이다.
+        */}
+        {(claim.approvedBy || claim.paidBy) && (
+          <div className="surface grid gap-3 p-3.5">
+            {claim.approvedBy && <Row label="승인" value={claim.approvedBy} />}
+            {claim.paidBy && (
+              <Row
+                label="송금"
+                value={
+                  claim.paidAmountKrw && claim.paidAmountKrw !== claim.amountKrw
+                    ? `${claim.paidBy} · ${krw(claim.paidAmountKrw)}`
+                    : claim.paidBy
+                }
+              />
+            )}
+            {claim.paidAmountKrw > 0 && claim.paidAmountKrw !== claim.amountKrw && (
+              <p className="text-sm text-[var(--muted)]">
+                손님 요청은 {krw(claim.amountKrw)}였습니다.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* 연락처와 이력 */}
         <div className="surface grid gap-3 p-3.5">
           <Row label="연락처" value={fmtPhone(claim.phone)} />
@@ -307,6 +343,15 @@ const ACTION_LABEL: Record<string, string> = {
   transition: "상태 변경",
 };
 
+/** 누가 한 일인지 한 줄로. 이름이 없으면 어떤 경로였는지라도 알려준다. */
+function actorLabel(e: ClaimDetail["events"][number]): string {
+  if (e.actorName) return e.actorName;
+  if (e.actorKind === "customer") return "손님";
+  if (e.actorKind === "link") return "Slack 링크";
+  if (e.actorKind === "system") return "시스템";
+  return "알 수 없음";
+}
+
 /** 누가 언제 무엇을 했는지. 돈이 오가므로 기록이 남아야 한다. */
 function Timeline({ events }: { events: ClaimDetail["events"] }) {
   if (events.length === 0) return null;
@@ -320,7 +365,9 @@ function Timeline({ events }: { events: ClaimDetail["events"] }) {
               {ACTION_LABEL[e.action] ?? e.action}
               {e.note && ` — ${e.note}`}
             </span>
-            <span className="text-xs text-[var(--muted)]">{dateTime(e.at)}</span>
+            <span className="text-xs text-[var(--muted)]">
+              {actorLabel(e)} · {dateTime(e.at)}
+            </span>
           </li>
         ))}
       </ul>

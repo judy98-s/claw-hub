@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/judy98-s/claw-hub/internal/domain"
+	"github.com/judy98-s/claw-hub/internal/payout"
 )
 
 // ── 보류 버튼 ───────────────────────────────────────────────────────────
@@ -289,6 +291,211 @@ func TestSettings_링크토큰으로는_못_들어간다(t *testing.T) {
 	for _, p := range []string{"/api/admin/store", "/api/admin/users"} {
 		if rec := h.doToken(http.MethodGet, p, "", tok); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s status = %d, want 401", p, rec.Code)
+		}
+	}
+}
+
+// ── 송금 설정 ───────────────────────────────────────────────────────────
+
+func TestPayoutSettings_기본값은_사용안함(t *testing.T) {
+	h := newHarness(t)
+	c := h.login(t)
+
+	rec := h.do(http.MethodGet, "/api/admin/payout-settings", "", c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var s payoutSettingsResponse
+	json.Unmarshal(rec.Body.Bytes(), &s) //nolint:errcheck
+
+	if s.Provider != "none" {
+		t.Errorf("Provider = %q, want none", s.Provider)
+	}
+	// 화면이 선택지를 그리려면 목록이 필요하다.
+	if len(s.Providers) < 3 || len(s.Banks) < 10 {
+		t.Errorf("선택지가 부족하다: providers=%d banks=%d", len(s.Providers), len(s.Banks))
+	}
+}
+
+func TestPayoutSettings_토스를_고르면_env없이_딥링크가_생긴다(t *testing.T) {
+	// 이게 이 기능의 핵심이다. 사장님이 앱을 바꾸려고 서버 설정을 고치고
+	// 재기동할 이유가 없어야 한다.
+	h := newHarness(t, func(d *Deps) {
+		d.Payout = payout.NewDeeplink(nil) // 환경변수에 아무것도 없는 상태
+	})
+	c := h.login(t)
+	id := h.seedClaim(t, nil)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	// 설정 전에는 딥링크가 없다
+	before := h.do(http.MethodGet, "/api/admin/claims/"+id+"/payout-links", "", c)
+	var b payoutLinksResponse
+	json.Unmarshal(before.Body.Bytes(), &b) //nolint:errcheck
+	if len(b.Links) != 0 {
+		t.Fatalf("설정 전 링크 = %+v", b.Links)
+	}
+
+	if rec := h.do(http.MethodPatch, "/api/admin/payout-settings", `{"provider":"toss"}`, c); rec.Code != http.StatusOK {
+		t.Fatalf("설정 status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	after := h.do(http.MethodGet, "/api/admin/claims/"+id+"/payout-links", "", c)
+	var a payoutLinksResponse
+	json.Unmarshal(after.Body.Bytes(), &a) //nolint:errcheck
+	if len(a.Links) != 1 {
+		t.Fatalf("설정 후 링크 = %+v", a.Links)
+	}
+	if !strings.HasPrefix(a.Links[0].URL, "supertoss://") {
+		t.Errorf("URL = %q", a.Links[0].URL)
+	}
+	// 토스는 짧은 은행명을 받는다. 코드나 정식명이면 은행이 안 채워진다.
+	if !strings.Contains(a.Links[0].URL, url.QueryEscape("토스")) {
+		t.Errorf("짧은 은행명이 안 들어갔다: %q", a.Links[0].URL)
+	}
+}
+
+func TestPayoutSettings_사용안함이면_링크가_없다(t *testing.T) {
+	h := newHarness(t) // 환경변수에는 toss 템플릿이 있다
+	c := h.login(t)
+	id := h.seedClaim(t, nil)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+	h.do(http.MethodPatch, "/api/admin/payout-settings", `{"provider":"none"}`, c)
+
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+id+"/payout-links", "", c)
+	var res payoutLinksResponse
+	json.Unmarshal(rec.Body.Bytes(), &res) //nolint:errcheck
+	if len(res.Links) != 0 {
+		t.Errorf("'사용 안 함'인데 링크가 있다: %+v — 매장 설정이 환경변수를 이겨야 한다", res.Links)
+	}
+	// 그래도 계좌 복사는 항상 있어야 한다.
+	if res.CopyText == "" {
+		t.Error("복사 텍스트가 없다 — 송금할 방법이 사라진다")
+	}
+}
+
+func TestPayoutSettings_출금계좌를_적으면_송금화면에_보인다(t *testing.T) {
+	// 직원이 여러 명이면 이게 없으면 자기 개인 계좌에서 보낼 수 있다.
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, nil)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	h.do(http.MethodPatch, "/api/admin/payout-settings",
+		`{"provider":"toss","bankCode":"090","account":"1002-1234-5678"}`, c)
+
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+id+"/payout-links", "", c)
+	var res payoutLinksResponse
+	json.Unmarshal(rec.Body.Bytes(), &res) //nolint:errcheck
+	if !strings.Contains(res.FromAccount, "토스뱅크") || !strings.Contains(res.FromAccount, "100212345678") {
+		t.Errorf("FromAccount = %q", res.FromAccount)
+	}
+}
+
+func TestPayoutSettings_검증(t *testing.T) {
+	h := newHarness(t)
+	c := h.login(t)
+	bad := []string{
+		`{"provider":"없는앱"}`,
+		`{"provider":"custom"}`,                                    // 템플릿 없음
+		`{"provider":"custom","template":"그냥문자열"}`,                 // :// 없음
+		`{"provider":"toss","account":"123"}`,                      // 계좌 너무 짧음
+		`{"provider":"toss","account":"1002123456","bankCode":""}`, // 은행 미선택
+	}
+	for _, body := range bad {
+		if rec := h.do(http.MethodPatch, "/api/admin/payout-settings", body, c); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", body, rec.Code)
+		}
+	}
+}
+
+func TestPayoutSettings_내장앱을_고르면_직접입력값은_버린다(t *testing.T) {
+	// 남겨두면 나중에 custom 으로 바꿨을 때 예전 값이 되살아난다.
+	h := newHarness(t)
+	c := h.login(t)
+
+	h.do(http.MethodPatch, "/api/admin/payout-settings",
+		`{"provider":"custom","template":"myapp://send?a={amount}"}`, c)
+	rec := h.do(http.MethodPatch, "/api/admin/payout-settings", `{"provider":"toss"}`, c)
+
+	var s payoutSettingsResponse
+	json.Unmarshal(rec.Body.Bytes(), &s) //nolint:errcheck
+	if s.Template != "" {
+		t.Errorf("Template = %q, want 빈 문자열", s.Template)
+	}
+}
+
+// ── 부분 환불과 처리자 ──────────────────────────────────────────────────
+
+func TestMarkPaid_금액을_지정할_수_있다(t *testing.T) {
+	// 3천원 요청인데 확인해보니 2천원만 먹힌 경우가 실제로 있다.
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, func(f *formOpts) { f.amount = "3000" })
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	rec := h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid",
+		`{"method":"deeplink","amountKrw":2000}`, c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	detail := h.do(http.MethodGet, "/api/admin/claims/"+id, "", c)
+	var d claimDetailResponse
+	json.Unmarshal(detail.Body.Bytes(), &d) //nolint:errcheck
+
+	if d.PaidAmountKrw != 2000 {
+		t.Errorf("PaidAmountKrw = %d, want 2000", d.PaidAmountKrw)
+	}
+	// 요청액은 그대로 남아야 한다. 덮어쓰면 분쟁 때 근거가 사라진다.
+	if d.AmountKRW != 3000 {
+		t.Errorf("AmountKrw = %d, want 3000 — 요청액이 덮어쓰였다", d.AmountKRW)
+	}
+}
+
+func TestMarkPaid_금액을_안_주면_요청액_그대로(t *testing.T) {
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, func(f *formOpts) { f.amount = "3000" })
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid", `{"method":"manual"}`, c)
+
+	detail := h.do(http.MethodGet, "/api/admin/claims/"+id, "", c)
+	var d claimDetailResponse
+	json.Unmarshal(detail.Body.Bytes(), &d) //nolint:errcheck
+	if d.PaidAmountKrw != 3000 {
+		t.Errorf("PaidAmountKrw = %d, want 3000", d.PaidAmountKrw)
+	}
+}
+
+func TestMarkPaid_요청액보다_많이는_못_보낸다(t *testing.T) {
+	// 2,000 을 20,000 으로 잘못 치는 것을 막는다.
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, func(f *formOpts) { f.amount = "2000" })
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	rec := h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid",
+		`{"method":"deeplink","amountKrw":20000}`, c)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	var e errorBody
+	json.Unmarshal(rec.Body.Bytes(), &e) //nolint:errcheck
+	if !strings.Contains(e.Message, "2,000") {
+		t.Errorf("메시지가 한도를 알려주지 않는다: %q", e.Message)
+	}
+}
+
+func TestMarkPaid_0원_이하는_거부(t *testing.T) {
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, nil)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	for _, amount := range []int{-1, -5000} {
+		body := fmt.Sprintf(`{"method":"manual","amountKrw":%d}`, amount)
+		if rec := h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid", body, c); rec.Code != http.StatusBadRequest {
+			t.Errorf("%d원: status = %d, want 400", amount, rec.Code)
 		}
 	}
 }

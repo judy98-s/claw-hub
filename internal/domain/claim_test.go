@@ -98,7 +98,7 @@ func TestTransition_성공시_Event를_남긴다(t *testing.T) {
 	if ev.From != StatusPending || ev.To != StatusApproved {
 		t.Errorf("Event from/to = %s/%s", ev.From, ev.To)
 	}
-	if ev.Actor != owner {
+	if ev.Actor.Kind != owner.Kind || ev.Actor.ID != owner.ID {
 		t.Errorf("Event.Actor = %+v", ev.Actor)
 	}
 	if ev.Note != "사진 확인함" {

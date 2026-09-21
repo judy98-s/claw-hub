@@ -86,8 +86,13 @@ func ParseIssueType(s string) (IssueType, error) {
 
 // Actor는 어떤 동작을 일으킨 주체다.
 type Actor struct {
-	Kind string // ActorCustomer | ActorOwner | ActorSystem
+	Kind string // ActorCustomer | ActorOwner | ActorSystem | ActorLink
 	ID   string
+	// Name은 화면에 보여줄 이름이다. 저장하지 않고 읽을 때 채운다.
+	//
+	// "승인됨"만으로는 직원이 여러 명일 때 누가 했는지 알 수 없다.
+	// 돈이 오가는 기록에서 그건 빈칸이나 마찬가지다.
+	Name string
 }
 
 const (
@@ -146,6 +151,9 @@ type Claim struct {
 	ResolvedAt   time.Time
 	PaidAt       time.Time
 	PayoutMethod string
+	// PaidAmountKRW는 실제로 보낸 금액이다. 요청액과 다를 수 있다.
+	// 0이면 아직 송금 전이다.
+	PaidAmountKRW int
 }
 
 // transitions는 허용되는 상태 전이 전부다.

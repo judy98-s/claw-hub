@@ -30,7 +30,7 @@ func (s *Store) ListContacts(ctx context.Context, storeID string) ([]ContactSumm
 		       (ARRAY_AGG(c.phone_enc ORDER BY c.created_at DESC))[1] AS latest_phone,
 		       COUNT(*),
 		       COUNT(*) FILTER (WHERE c.status='paid'),
-		       COALESCE(SUM(c.amount_krw) FILTER (WHERE c.status='paid'), 0),
+		       COALESCE(SUM(COALESCE(c.paid_amount_krw, c.amount_krw)) FILTER (WHERE c.status='paid'), 0),
 		       MAX(c.created_at),
 		       COALESCE(f.manual_status, $2),
 		       COALESCE(f.note, '')

@@ -44,6 +44,7 @@ type Store interface {
 	SetUserActive(ctx context.Context, storeID, userID string, active bool) error
 	StoreByID(ctx context.Context, id string) (store.StoreDetail, error)
 	UpdateStore(ctx context.Context, id, name, phone string) (store.StoreDetail, error)
+	UpdatePayoutSettings(ctx context.Context, id string, in store.PayoutSettings) (store.StoreDetail, error)
 
 	ListContacts(ctx context.Context, storeID string) ([]store.ContactSummary, error)
 	SetContactStatus(ctx context.Context, storeID string, hash []byte, kind, status, note, by string) error
@@ -143,6 +144,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/admin/me", s.authed(s.handleUpdateMe))
 	mux.Handle("GET /api/admin/store", s.authed(s.handleGetStore))
 	mux.Handle("PATCH /api/admin/store", s.authed(s.handleUpdateStore))
+	mux.Handle("GET /api/admin/payout-settings", s.authed(s.handleGetPayoutSettings))
+	mux.Handle("PATCH /api/admin/payout-settings", s.authed(s.handleUpdatePayoutSettings))
 	mux.Handle("GET /api/admin/users", s.authed(s.handleListUsers))
 	mux.Handle("POST /api/admin/users", s.authed(s.handleCreateUser))
 	mux.Handle("PATCH /api/admin/users/{id}", s.authed(s.handleSetUserActive))

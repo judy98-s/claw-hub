@@ -186,7 +186,7 @@ func (s *Store) RiskFactsFor(ctx context.Context, q RiskQuery) (domain.RiskInput
 
 	var prior int
 	if err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(amount_krw) FILTER (WHERE status='paid'), 0)
+		SELECT COUNT(*), COALESCE(SUM(COALESCE(paid_amount_krw, amount_krw)) FILTER (WHERE status='paid'), 0)
 		  FROM claims WHERE phone_hash=$1 AND created_at >= $2`, phoneHash, since,
 	).Scan(&prior, &in.PhonePaidTotal30d); err != nil {
 		return domain.RiskInput{}, fmt.Errorf("번호 이력 집계: %w", err)

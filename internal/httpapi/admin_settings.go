@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/judy98-s/claw-hub/internal/crypto"
+	"github.com/judy98-s/claw-hub/internal/payout"
 	"github.com/judy98-s/claw-hub/internal/store"
 )
 
@@ -219,4 +221,116 @@ func (s *Server) handleSetUserActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"active": req.Active})
+}
+
+// payoutFor는 매장 설정에 맞는 송금 링크 제공자를 만든다.
+//
+// 설정이 없으면 환경변수(PAYOUT_DEEPLINK_TEMPLATES)로 떨어진다. 기존
+// 배포를 깨지 않으면서, 새로 쓰는 사람은 화면에서만 정하면 되게 한다.
+func (s *Server) payoutFor(ctx context.Context, storeID string) payout.Payout {
+	st, err := s.store.StoreByID(ctx, storeID)
+	if err != nil || st.PayoutProvider == "" {
+		return s.payout
+	}
+	tpl := payout.TemplateFor(st.PayoutProvider, st.PayoutTemplate)
+	if tpl == "" {
+		// '사용 안 함'을 고른 것이다. 빈 제공자를 주면 UI 가 계좌 복사
+		// 경로만 보여준다.
+		return payout.NewDeeplink(nil)
+	}
+	return payout.NewDeeplink(map[string]string{st.PayoutProvider: tpl})
+}
+
+// payoutSettingsResponse는 설정 화면이 받는 송금 설정이다.
+type payoutSettingsResponse struct {
+	Providers []payout.Provider `json:"providers"`
+	Banks     []payout.Bank     `json:"banks"`
+	Provider  string            `json:"provider"`
+	Template  string            `json:"template"`
+	BankCode  string            `json:"bankCode"`
+	Account   string            `json:"account"`
+}
+
+func (s *Server) handleGetPayoutSettings(w http.ResponseWriter, r *http.Request) {
+	u := authUser(r.Context())
+
+	st, err := s.store.StoreByID(r.Context(), u.StoreID)
+	if err != nil {
+		internalError(w, r, err, "송금 설정 조회 실패")
+		return
+	}
+	provider := st.PayoutProvider
+	if provider == "" {
+		provider = payout.ProviderNone
+	}
+	writeJSON(w, http.StatusOK, payoutSettingsResponse{
+		Providers: payout.Providers(), Banks: payout.Banks(),
+		Provider: provider, Template: st.PayoutTemplate,
+		BankCode: st.PayoutBankCode, Account: st.PayoutAccount,
+	})
+}
+
+type payoutSettingsRequest struct {
+	Provider string `json:"provider"`
+	Template string `json:"template"`
+	BankCode string `json:"bankCode"`
+	Account  string `json:"account"`
+}
+
+func (s *Server) handleUpdatePayoutSettings(w http.ResponseWriter, r *http.Request) {
+	u := authUser(r.Context())
+
+	var req payoutSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badRequest(w, "요청 형식이 올바르지 않습니다.")
+		return
+	}
+
+	if _, ok := payout.ProviderByID(req.Provider); !ok {
+		badRequest(w, "송금 앱을 선택해주세요.")
+		return
+	}
+	tpl := strings.TrimSpace(req.Template)
+	if req.Provider == payout.ProviderCustom {
+		if tpl == "" {
+			badRequest(w, "딥링크 주소를 입력해주세요.")
+			return
+		}
+		if !strings.Contains(tpl, "://") {
+			badRequest(w, "딥링크 주소 형식이 올바르지 않습니다 (예: myapp://send?...).")
+			return
+		}
+	} else {
+		// 내장 앱을 고르면 직접 입력값은 버린다. 남겨두면 나중에 custom 으로
+		// 바꿨을 때 예전 값이 되살아나 예상 밖으로 동작한다.
+		tpl = ""
+	}
+
+	account := onlyDigits(req.Account)
+	bankCode := strings.TrimSpace(req.BankCode)
+	if account != "" {
+		if len(account) < 6 || len(account) > 20 {
+			badRequest(w, "출금 계좌번호를 정확히 입력해주세요.")
+			return
+		}
+		if _, ok := payout.BankByCode(bankCode); !ok {
+			badRequest(w, "출금 계좌의 은행을 선택해주세요.")
+			return
+		}
+	} else {
+		bankCode = ""
+	}
+
+	st, err := s.store.UpdatePayoutSettings(r.Context(), u.StoreID, store.PayoutSettings{
+		Provider: req.Provider, Template: tpl, BankCode: bankCode, Account: account,
+	})
+	if err != nil {
+		internalError(w, r, err, "송금 설정 저장 실패")
+		return
+	}
+	writeJSON(w, http.StatusOK, payoutSettingsResponse{
+		Providers: payout.Providers(), Banks: payout.Banks(),
+		Provider: st.PayoutProvider, Template: st.PayoutTemplate,
+		BankCode: st.PayoutBankCode, Account: st.PayoutAccount,
+	})
 }

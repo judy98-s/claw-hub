@@ -16,6 +16,8 @@ type PayoutInfo = {
   holder: string;
   amountKrw: number;
   copyText: string;
+  /** 사장님이 설정에 적어둔 출금 계좌. 비어 있을 수 있다. */
+  fromAccount: string;
 };
 
 /**
@@ -47,10 +49,18 @@ export function PayoutSheet({
   const [busy, setBusy] = useState(false);
   // 딥링크를 눌러 앱으로 나갔다 돌아온 상태. 이때 "보내셨나요?"를 묻는다.
   const [returned, setReturned] = useState(false);
+  // 실제로 보낼 금액. 요청액에서 줄일 수 있다 — 3천원 요청인데 확인해보니
+  // 2천원만 먹힌 경우가 실제로 있다.
+  const [amount, setAmount] = useState(0);
+  // 되돌릴 수 없는 동작이므로 한 번 더 묻는다.
+  const [confirming, setConfirming] = useState<null | "deeplink" | "manual">(null);
 
   useEffect(() => {
     getWith<PayoutInfo>(`/api/admin/claims/${claimId}/payout-links`, token)
-      .then(setInfo)
+      .then((d) => {
+        setInfo(d);
+        setAmount(d.amountKrw);
+      })
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : "송금 정보를 불러오지 못했습니다."),
       );
@@ -69,13 +79,35 @@ export function PayoutSheet({
   async function markPaid(method: "deeplink" | "manual") {
     setBusy(true);
     try {
-      await postWith(`/api/admin/claims/${claimId}/mark-paid`, { method }, token);
+      await postWith(
+        `/api/admin/claims/${claimId}/mark-paid`,
+        { method, amountKrw: amount },
+        token,
+      );
       onPaid();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "기록에 실패했습니다.");
       setBusy(false);
+      setConfirming(null);
     }
   }
+
+  const valid = info !== null && amount > 0 && amount <= info.amountKrw;
+
+/**
+ * 요청액과 그 아래의 "고를 만한" 금액들.
+ *
+ * 1,000원씩 빼면 35,000원짜리에서 34,000 / 33,000 같은 쓸모없는 값이 나온다.
+ * 실제로 부분 환불할 때 고르는 건 3만·2만·1만 같은 동그란 숫자다.
+ */
+const AMOUNT_LADDER = [1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000];
+
+function amountChoices(requested: number): number[] {
+  const below = AMOUNT_LADDER.filter((v) => v < requested)
+    .sort((a, b) => b - a)
+    .slice(0, 3);
+  return [requested, ...below];
+}
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink-950/50">
@@ -98,16 +130,64 @@ export function PayoutSheet({
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-1 rounded-lg bg-[var(--surface-sunken)] p-4">
-              <p className="text-2xl font-bold tabular-nums">{krw(info.amountKrw)}</p>
+              <p className="text-2xl font-bold tabular-nums">{krw(amount)}</p>
               <p className="text-sm text-[var(--muted)]">
                 {info.bankName} {info.accountNo} · {info.holder}
               </p>
+              {amount !== info.amountKrw && (
+                <p className="text-sm text-[var(--tone-warn-fg)]">
+                  손님 요청은 {krw(info.amountKrw)}입니다.
+                </p>
+              )}
+              {info.fromAccount && (
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  출금 계좌: {info.fromAccount}
+                </p>
+              )}
+            </div>
+
+            {/* 보낼 금액. 요청액이 기본이고 줄일 수 있다. */}
+            <div className="grid gap-2">
+              <p className="text-sm font-semibold">보낼 금액</p>
+              <div className="grid grid-cols-4 gap-2">
+                {amountChoices(info.amountKrw).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setAmount(v)}
+                    className={[
+                      "h-11 rounded-lg border text-sm font-semibold transition-colors duration-150",
+                      amount === v
+                        ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                        : "border-[var(--line)] bg-[var(--surface)]",
+                    ].join(" ")}
+                  >
+                    {v.toLocaleString("ko-KR")}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={amount === 0 ? "" : String(amount)}
+                onChange={(e) => setAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+                placeholder="직접 입력"
+                aria-label="보낼 금액 직접 입력"
+                className="h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 text-base text-[var(--fg)]"
+              />
+              {amount > info.amountKrw && (
+                <p className="text-sm text-[var(--tone-stop-fg)]">
+                  요청 금액보다 많이 보낼 수 없습니다.
+                </p>
+              )}
             </div>
 
             {returned ? (
               <div className="grid gap-2">
-                <p className="text-center font-semibold">송금을 완료하셨나요?</p>
-                <Button size="lg" full loading={busy} onClick={() => void markPaid("deeplink")}>
+                <p className="text-center font-semibold">
+                  {krw(amount)}을 보내셨나요?
+                </p>
+                <Button size="lg" full onClick={() => setConfirming("deeplink")}>
                   네, 보냈습니다
                 </Button>
                 <Button variant="ghost" full onClick={() => setReturned(false)}>
@@ -119,9 +199,22 @@ export function PayoutSheet({
                 {info.links.map((l) => (
                   <a
                     key={l.provider}
-                    href={l.url}
-                    onClick={() => setReturned(true)}
-                    className="flex h-14 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
+                    href={l.url.replace(
+                      /amount=\d+/,
+                      `amount=${amount}`,
+                    )}
+                    onClick={(e) => {
+                      if (!valid) {
+                        e.preventDefault();
+                        return;
+                      }
+                      setReturned(true);
+                    }}
+                    aria-disabled={!valid}
+                    className={[
+                      "flex h-14 items-center justify-center gap-2 rounded-lg font-semibold text-white",
+                      valid ? "bg-accent-600" : "pointer-events-none bg-accent-600/40",
+                    ].join(" ")}
                   >
                     <ArrowSquareOut size={20} weight="bold" />
                     {l.label}
@@ -153,13 +246,45 @@ export function PayoutSheet({
                 <Button
                   variant="ghost"
                   full
-                  loading={busy}
-                  onClick={() => void markPaid("manual")}
+                  disabled={!valid}
+                  onClick={() => setConfirming("manual")}
                 >
                   다른 방법으로 보냈어요 (완료 기록)
                 </Button>
               </div>
             )}
+          </div>
+        )}
+
+        {/*
+          되돌릴 수 없는 기록이다. 한 번 더 묻는다.
+          paid 상태는 되돌릴 수 없게 막아뒀으므로 잘못 누르면 고칠 길이 없다.
+        */}
+        {confirming && info && (
+          <div className="fixed inset-0 z-10 flex items-end justify-center bg-ink-950/50">
+            <div className="grid w-full max-w-lg gap-4 rounded-t-2xl bg-[var(--surface)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+              <div className="grid gap-1">
+                <h3 className="text-lg font-bold">정말 보내셨나요?</h3>
+                <p className="text-sm text-[var(--muted)]">
+                  {info.bankName} {info.accountNo} ({info.holder}) 로{" "}
+                  <b className="text-[var(--fg)]">{krw(amount)}</b>
+                  {" "}보낸 것으로 기록합니다. 기록은 되돌릴 수 없습니다.
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <Button
+                  size="lg"
+                  full
+                  loading={busy}
+                  onClick={() => void markPaid(confirming)}
+                >
+                  네, 보냈습니다
+                </Button>
+                <Button variant="ghost" full onClick={() => setConfirming(null)}>
+                  취소
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

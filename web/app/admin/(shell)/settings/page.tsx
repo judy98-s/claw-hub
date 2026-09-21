@@ -20,26 +20,41 @@ type Profile = {
 
 type StoreInfo = { id: string; name: string; phone: string };
 
+type Provider = { id: string; label: string; prefills: boolean; note: string };
+type Bank = { code: string; name: string };
+
+type PayoutSettings = {
+  providers: Provider[];
+  banks: Bank[];
+  provider: string;
+  template: string;
+  bankCode: string;
+  account: string;
+};
+
 export default function SettingsPage() {
   const router = useRouter();
 
   const [me, setMe] = useState<Profile | null>(null);
   const [shop, setShop] = useState<StoreInfo | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
+  const [payout, setPayout] = useState<PayoutSettings | null>(null);
   const [meId, setMeId] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [m, s, u] = await Promise.all([
+      const [m, s, u, p] = await Promise.all([
         get<Profile>("/api/admin/me"),
         get<StoreInfo>("/api/admin/store"),
         get<{ users: Profile[]; meId: string }>("/api/admin/users"),
+        get<PayoutSettings>("/api/admin/payout-settings"),
       ]);
       setMe(m);
       setShop(s);
       setUsers(u.users ?? []);
       setMeId(u.meId);
+      setPayout(p);
       setError("");
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -86,6 +101,7 @@ export default function SettingsPage() {
       <div className="grid gap-6">
         <MyProfile me={me} onSaved={setMe} onError={setError} />
         <StoreSettings shop={shop} onSaved={setShop} onError={setError} />
+        {payout && <PayoutSection value={payout} onSaved={setPayout} onError={setError} />}
         <StaffList users={users} meId={meId} onChanged={load} onError={setError} />
 
         <Button variant="ghost" full onClick={() => void logout()}>
@@ -224,6 +240,147 @@ function StoreSettings({
         <Button type="submit" full loading={busy} disabled={!dirty}>
           {saved ? "저장됨" : "저장"}
         </Button>
+      </form>
+    </Section>
+  );
+}
+
+function PayoutSection({
+  value,
+  onSaved,
+  onError,
+}: {
+  value: PayoutSettings;
+  onSaved: (p: PayoutSettings) => void;
+  onError: (m: string) => void;
+}) {
+  const [provider, setProvider] = useState(value.provider);
+  const [template, setTemplate] = useState(value.template);
+  const [bankCode, setBankCode] = useState(value.bankCode);
+  const [account, setAccount] = useState(value.account);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const chosen = value.providers.find((p) => p.id === provider);
+  const dirty =
+    provider !== value.provider ||
+    template !== value.template ||
+    bankCode !== value.bankCode ||
+    account !== value.account;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const next = await patch<PayoutSettings>("/api/admin/payout-settings", {
+        provider,
+        template,
+        bankCode,
+        account,
+      });
+      onSaved(next);
+      setTemplate(next.template);
+      setAccount(next.account);
+      setBankCode(next.bankCode);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      onError("");
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : "저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="송금" hint="환불을 보낼 때 어떤 앱을 열지 정합니다.">
+      <form onSubmit={save} className="grid gap-4">
+        <div className="grid gap-2">
+          {value.providers.map((p) => {
+            const on = provider === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setProvider(p.id)}
+                aria-pressed={on}
+                className={[
+                  "grid gap-0.5 rounded-lg border p-3 text-left transition-colors duration-150",
+                  on
+                    ? "border-accent-600 bg-[var(--tone-accent-bg)]"
+                    : "border-[var(--line)] bg-[var(--surface)]",
+                ].join(" ")}
+              >
+                <span className="flex items-center gap-1.5 font-semibold">
+                  {p.label}
+                  {p.prefills && p.id !== "custom" && <Badge tone="ok">자동 입력</Badge>}
+                  {!p.prefills && p.id !== "none" && <Badge tone="warn">직접 입력</Badge>}
+                </span>
+                <span className="text-xs text-[var(--muted)]">{p.note}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {provider === "custom" && (
+          <Field label="딥링크 주소" required>
+            <Input
+              value={template}
+              onChange={(e) => setTemplate(e.target.value)}
+              placeholder="myapp://send?bank={bankShort}&amount={amount}"
+              spellCheck={false}
+            />
+          </Field>
+        )}
+
+        {/*
+          출금 계좌는 딥링크에 넣지 않는다. 송금 앱은 어느 계좌에서 보낼지를
+          URL 로 받지 않고 로그인한 사람의 주계좌를 쓴다. 직원이 여러 명일 때
+          "어느 계좌에서 나가야 하는지"를 송금 화면에 띄워주기 위한 값이다.
+        */}
+        <div className="grid gap-3 border-t border-[var(--line)] pt-4">
+          <div className="grid gap-0.5">
+            <p className="text-sm font-semibold">출금 계좌 (선택)</p>
+            <p className="text-sm text-[var(--muted)]">
+              환불이 나가야 할 계좌입니다. 송금 화면에 표시만 됩니다 — 앱이 이
+              계좌를 자동으로 고르지는 못합니다. 직원이 여러 명일 때 개인 계좌에서
+              나가는 일을 막아줍니다.
+            </p>
+          </div>
+          <Field label="은행">
+            <select
+              value={bankCode}
+              onChange={(e) => setBankCode(e.target.value)}
+              className="h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-base text-[var(--fg)]"
+            >
+              <option value="">선택 안 함</option>
+              {value.banks.map((b) => (
+                <option key={b.code} value={b.code}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="계좌번호">
+            <Input
+              inputMode="numeric"
+              value={account}
+              onChange={(e) => setAccount(e.target.value.replace(/[^0-9-]/g, ""))}
+              placeholder="- 없이 입력"
+            />
+          </Field>
+        </div>
+
+        <Button type="submit" full loading={busy} disabled={!dirty}>
+          {saved ? "저장됨" : "저장"}
+        </Button>
+
+        {chosen && !chosen.prefills && chosen.id !== "none" && (
+          <p className="text-sm text-[var(--tone-warn-fg)]">
+            {chosen.label}은 계좌와 금액이 자동으로 채워지지 않습니다. 송금 화면의
+            계좌번호 복사를 함께 쓰세요.
+          </p>
+        )}
       </form>
     </Section>
   );

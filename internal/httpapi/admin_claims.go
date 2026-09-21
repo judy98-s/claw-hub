@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -103,6 +104,12 @@ type claimDetailResponse struct {
 	PhoneClaims30d    int `json:"phoneClaims30d"`
 	PhonePaidTotal30d int `json:"phonePaidTotal30d"`
 
+	// 누가 승인했고 누가 보냈는지. 직원이 여러 명일 때 "승인됨"만으로는
+	// 아무것도 알 수 없다.
+	ApprovedBy    string `json:"approvedBy"`
+	PaidBy        string `json:"paidBy"`
+	PaidAmountKrw int    `json:"paidAmountKrw"`
+
 	CreatedAt  time.Time  `json:"createdAt"`
 	ResolvedAt *time.Time `json:"resolvedAt"`
 	PaidAt     *time.Time `json:"paidAt"`
@@ -112,6 +119,7 @@ type claimDetailResponse struct {
 
 type eventResponse struct {
 	ActorKind string    `json:"actorKind"`
+	ActorName string    `json:"actorName"`
 	Action    string    `json:"action"`
 	From      string    `json:"from"`
 	To        string    `json:"to"`
@@ -149,7 +157,7 @@ func (s *Server) claimDetailResponse(d store.ClaimDetail) claimDetailResponse {
 	events := make([]eventResponse, 0, len(d.Events))
 	for _, e := range d.Events {
 		events = append(events, eventResponse{
-			ActorKind: e.Actor.Kind, Action: e.Action,
+			ActorKind: e.Actor.Kind, ActorName: e.Actor.Name, Action: e.Action,
 			From: string(e.From), To: string(e.To), Note: e.Note, At: e.At,
 		})
 	}
@@ -172,6 +180,9 @@ func (s *Server) claimDetailResponse(d store.ClaimDetail) claimDetailResponse {
 		Phone: d.Phone, BankCode: d.BankCode, BankName: bankName,
 		AccountNo: d.Account, Holder: d.Holder,
 		CallRecommended:    domain.RequiresPhoto(d.AmountKRW, s.policy),
+		ApprovedBy:         d.ApprovedBy,
+		PaidBy:             d.PaidBy,
+		PaidAmountKrw:      d.PaidAmountKRW,
 		PhotoIDs:           photoIDs,
 		Events:             events,
 		PhoneClaims30d:     d.PhoneClaims30d,
@@ -193,6 +204,8 @@ func nilTime(t time.Time) *time.Time {
 type transitionRequest struct {
 	Note   string `json:"note"`
 	Method string `json:"method"` // mark-paid 전용: deeplink | manual
+	// AmountKrw는 실제로 보낸 금액이다. 0이면 요청액 그대로 보낸 것으로 본다.
+	AmountKrw int `json:"amountKrw"`
 }
 
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
@@ -219,10 +232,26 @@ func (s *Server) handleMarkPaid(w http.ResponseWriter, r *http.Request) {
 		switch req.Method {
 		case domain.PayoutDeeplink, domain.PayoutManual:
 			c.PayoutMethod = req.Method
-			return nil
 		default:
 			return errors.New("송금 방법을 알려주세요 (deeplink 또는 manual)")
 		}
+
+		// 부분 환불이 실제로 일어난다 — 3천원 요청인데 확인해보니 2천원만
+		// 먹힌 경우. 요청액을 덮어쓰지 않고 따로 기록한다.
+		paid := req.AmountKrw
+		if paid == 0 {
+			paid = c.AmountKRW
+		}
+		if paid <= 0 {
+			return errors.New("보낸 금액을 입력해주세요")
+		}
+		// 요청액보다 많이 보낼 수는 없다. 2,000을 20,000으로 잘못 친 것을
+		// 막는 장치다 — 실제로 그렇게 보내야 할 일은 없다.
+		if paid > c.AmountKRW {
+			return fmt.Errorf("요청 금액(%s원)보다 많이 보낼 수 없습니다", comma(c.AmountKRW))
+		}
+		c.PaidAmountKRW = paid
+		return nil
 	})
 }
 
@@ -287,6 +316,9 @@ type payoutLinksResponse struct {
 	Holder    string `json:"holder"`
 	AmountKRW int    `json:"amountKrw"`
 	CopyText  string `json:"copyText"`
+	// FromAccount는 사장님이 적어둔 출금 계좌다. 비어 있을 수 있다.
+	// 직원이 여러 명이면 이게 없으면 자기 개인 계좌에서 보낼 수 있다.
+	FromAccount string `json:"fromAccount"`
 }
 
 func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +338,11 @@ func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	links, err := s.payout.Links(payout.Request{
+	// 매장 설정이 우선이고, 없으면 환경변수 기본값으로 떨어진다.
+	// 사장님이 앱을 바꾸려고 서버 설정을 고칠 이유가 없어야 한다.
+	provider := s.payoutFor(r.Context(), a.storeID)
+
+	links, err := provider.Links(payout.Request{
 		BankCode: d.BankCode, AccountNo: d.Account, Holder: d.Holder, AmountKRW: d.AmountKRW,
 	})
 	if err != nil {
@@ -320,11 +356,23 @@ func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
 		bankName = b.Name
 	}
 
-	writeJSON(w, http.StatusOK, payoutLinksResponse{
+	res := payoutLinksResponse{
 		Links: links, BankName: bankName, AccountNo: d.Account,
 		Holder: d.Holder, AmountKRW: d.AmountKRW,
 		CopyText: bankName + " " + d.Account + " " + d.Holder,
-	})
+	}
+
+	// 출금 계좌를 적어뒀으면 "어느 계좌에서 나가는지" 를 함께 보여준다.
+	// 직원이 여러 명이면 이게 없으면 자기 개인 계좌에서 보낼 수 있다.
+	if st, err := s.store.StoreByID(r.Context(), a.storeID); err == nil && st.PayoutAccount != "" {
+		from := st.PayoutAccount
+		if b, ok := payout.BankByCode(st.PayoutBankCode); ok {
+			from = b.Name + " " + from
+		}
+		res.FromAccount = from
+	}
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 // handlePhoto는 첨부 사진을 내려준다.

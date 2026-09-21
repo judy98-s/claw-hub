@@ -189,6 +189,10 @@ type ClaimDetail struct {
 	MachineCode  string
 	RiskReasons  []domain.RiskReason
 
+	// ApprovedBy / PaidBy 는 감사 로그에서 뽑은 처리자 이름이다.
+	ApprovedBy string
+	PaidBy     string
+
 	Phone    string // 복호화된 평문
 	BankCode string
 	Account  string
@@ -213,19 +217,20 @@ func (s *Store) ClaimByID(ctx context.Context, storeID, id string, by domain.Act
 	var phoneEnc, accountEnc, holderEnc []byte
 	var phoneHash []byte
 	var resolvedAt, paidAt *time.Time
+	var paidAmount *int
 
 	err := s.pool.QueryRow(ctx, `
 		SELECT c.id, c.store_id, c.machine_id, c.issue_type, c.amount_krw, c.description,
 		       c.status, c.risk_score, c.risk_reasons,
 		       c.phone_enc, c.phone_hash, c.bank_code, c.account_enc, c.holder_enc,
-		       c.created_at, c.resolved_at, c.paid_at, c.payout_method,
+		       c.created_at, c.resolved_at, c.paid_at, c.payout_method, c.paid_amount_krw,
 		       m.label, m.code
 		  FROM claims c JOIN machines m ON m.id = c.machine_id
 		 WHERE c.id=$1 AND c.store_id=$2`, id, storeID,
 	).Scan(&d.ID, &d.StoreID, &d.MachineID, &issueType, &d.AmountKRW, &d.Description,
 		&status, &d.RiskScore, &reasons,
 		&phoneEnc, &phoneHash, &d.BankCode, &accountEnc, &holderEnc,
-		&d.CreatedAt, &resolvedAt, &paidAt, &d.PayoutMethod,
+		&d.CreatedAt, &resolvedAt, &paidAt, &d.PayoutMethod, &paidAmount,
 		&d.MachineLabel, &d.MachineCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ClaimDetail{}, ErrNotFound
@@ -252,6 +257,10 @@ func (s *Store) ClaimByID(ctx context.Context, storeID, id string, by domain.Act
 		return ClaimDetail{}, fmt.Errorf("예금주 복호화: %w", err)
 	}
 
+	if paidAmount != nil {
+		d.PaidAmountKRW = *paidAmount
+	}
+
 	if d.Photos, err = s.photosFor(ctx, id); err != nil {
 		return ClaimDetail{}, err
 	}
@@ -259,9 +268,25 @@ func (s *Store) ClaimByID(ctx context.Context, storeID, id string, by domain.Act
 		return ClaimDetail{}, err
 	}
 
+	for _, e := range d.Events {
+		if e.Action != domain.ActionTransition {
+			continue
+		}
+		who := e.Actor.Name
+		if who == "" && e.Actor.Kind == domain.ActorLink {
+			who = "Slack 링크"
+		}
+		switch e.To {
+		case domain.StatusApproved:
+			d.ApprovedBy = who
+		case domain.StatusPaid:
+			d.PaidBy = who
+		}
+	}
+
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*),
-		       COALESCE(SUM(amount_krw) FILTER (WHERE status='paid'), 0)
+		       COALESCE(SUM(COALESCE(paid_amount_krw, amount_krw)) FILTER (WHERE status='paid'), 0)
 		  FROM claims
 		 WHERE phone_hash=$1 AND created_at > now() - interval '30 days'`, phoneHash,
 	).Scan(&d.PhoneClaims30d, &d.PhonePaidTotal30d); err != nil {
@@ -296,9 +321,14 @@ func (s *Store) photosFor(ctx context.Context, claimID string) ([]Photo, error) 
 }
 
 func (s *Store) eventsFor(ctx context.Context, claimID string) ([]domain.Event, error) {
+	// 사람 이름을 붙여서 읽는다. "승인됨"만으로는 직원이 여러 명일 때
+	// 누가 했는지 알 수 없다.
 	rows, err := s.pool.Query(ctx, `
-		SELECT claim_id, actor_kind, actor_id, action, from_status, to_status, note, created_at
-		  FROM claim_events WHERE claim_id=$1 ORDER BY created_at, id`, claimID)
+		SELECT e.claim_id, e.actor_kind, e.actor_id, COALESCE(u.name, ''),
+		       e.action, e.from_status, e.to_status, e.note, e.created_at
+		  FROM claim_events e
+		  LEFT JOIN users u ON u.id::text = e.actor_id
+		 WHERE e.claim_id=$1 ORDER BY e.created_at, e.id`, claimID)
 	if err != nil {
 		return nil, fmt.Errorf("이벤트 조회: %w", err)
 	}
@@ -307,7 +337,8 @@ func (s *Store) eventsFor(ctx context.Context, claimID string) ([]domain.Event, 
 	for rows.Next() {
 		var e domain.Event
 		var from, to string
-		if err := rows.Scan(&e.ClaimID, &e.Actor.Kind, &e.Actor.ID, &e.Action, &from, &to, &e.Note, &e.At); err != nil {
+		if err := rows.Scan(&e.ClaimID, &e.Actor.Kind, &e.Actor.ID, &e.Actor.Name,
+			&e.Action, &from, &to, &e.Note, &e.At); err != nil {
 			return nil, err
 		}
 		e.From, e.To = domain.Status(from), domain.Status(to)
@@ -328,10 +359,11 @@ func (s *Store) ApplyTransition(ctx context.Context, storeID string, c *domain.C
 			       resolved_at = CASE WHEN $2::timestamptz IS NULL THEN resolved_at ELSE $2 END,
 			       paid_at     = CASE WHEN $3::timestamptz IS NULL THEN paid_at     ELSE $3 END,
 			       payout_method = CASE WHEN $4 = '' THEN payout_method ELSE $4 END,
-			       resolved_by = COALESCE($5, resolved_by)
-			 WHERE id=$6 AND store_id=$7 AND status=$8`,
+			       paid_amount_krw = CASE WHEN $5 = 0 THEN paid_amount_krw ELSE $5 END,
+			       resolved_by = COALESCE($6, resolved_by)
+			 WHERE id=$7 AND store_id=$8 AND status=$9`,
 			string(c.Status), nilTime(c.ResolvedAt), nilTime(c.PaidAt), c.PayoutMethod,
-			nilUUID(ev.Actor.ID), c.ID, storeID, string(ev.From))
+			c.PaidAmountKRW, nilUUID(ev.Actor.ID), c.ID, storeID, string(ev.From))
 		if err != nil {
 			return fmt.Errorf("상태 변경: %w", err)
 		}

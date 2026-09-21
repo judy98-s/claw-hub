@@ -329,6 +329,17 @@ func (f *fakeStore) UpdateStore(_ context.Context, id, name, phone string) (stor
 	return f.storeDetail, nil
 }
 
+func (f *fakeStore) UpdatePayoutSettings(_ context.Context, id string, in store.PayoutSettings) (store.StoreDetail, error) {
+	if id != "store-1" {
+		return store.StoreDetail{}, store.ErrNotFound
+	}
+	f.storeDetail.PayoutProvider = in.Provider
+	f.storeDetail.PayoutTemplate = in.Template
+	f.storeDetail.PayoutBankCode = in.BankCode
+	f.storeDetail.PayoutAccount = in.Account
+	return f.storeDetail, nil
+}
+
 func (f *fakeStore) ListContacts(context.Context, string) ([]store.ContactSummary, error) {
 	return []store.ContactSummary{}, nil
 }

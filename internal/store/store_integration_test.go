@@ -889,3 +889,167 @@ func mustMachineCode(t *testing.T, s *Store, storeID string) string {
 	}
 	return list[0].Code
 }
+
+func TestClaimDetail_누가_승인하고_누가_보냈는지(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	boss, err := s.CreateUser(ctx, storeID, "boss@example.com", "secret123", "손지영", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff, err := s.CreateUser(ctx, storeID, "staff@example.com", "staffpass1", "김직원", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, "k1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 사장님이 승인하고
+	c := &domain.Claim{ID: res.ID, StoreID: storeID, AmountKRW: 2000, Status: domain.StatusPending}
+	ev, err := c.Transition(domain.StatusApproved, domain.Actor{Kind: domain.ActorOwner, ID: boss.ID}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ApplyTransition(ctx, storeID, c, ev); err != nil {
+		t.Fatal(err)
+	}
+
+	// 직원이 보낸다
+	c.PayoutMethod = domain.PayoutDeeplink
+	c.PaidAmountKRW = 1500
+	ev, err = c.Transition(domain.StatusPaid, domain.Actor{Kind: domain.ActorOwner, ID: staff.ID}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ApplyTransition(ctx, storeID, c, ev); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := s.ClaimByID(ctx, storeID, res.ID, domain.Actor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ApprovedBy != "손지영" {
+		t.Errorf("ApprovedBy = %q, want 손지영", d.ApprovedBy)
+	}
+	if d.PaidBy != "김직원" {
+		t.Errorf("PaidBy = %q, want 김직원", d.PaidBy)
+	}
+	if d.PaidAmountKRW != 1500 {
+		t.Errorf("PaidAmountKRW = %d, want 1500", d.PaidAmountKRW)
+	}
+	if d.AmountKRW != 2000 {
+		t.Errorf("AmountKRW = %d, want 2000 — 요청액이 덮어쓰였다", d.AmountKRW)
+	}
+}
+
+func TestClaimDetail_링크로_처리하면_Slack링크로_표시된다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	res, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, "k1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &domain.Claim{ID: res.ID, StoreID: storeID, AmountKRW: 2000, Status: domain.StatusPending}
+	ev, _ := c.Transition(domain.StatusApproved, domain.Actor{Kind: domain.ActorLink}, "")
+	if err := s.ApplyTransition(ctx, storeID, c, ev); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := s.ClaimByID(ctx, storeID, res.ID, domain.Actor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ApprovedBy != "Slack 링크" {
+		t.Errorf("ApprovedBy = %q, want \"Slack 링크\"", d.ApprovedBy)
+	}
+}
+
+func TestPaidAmount_집계는_실제_송금액을_쓴다(t *testing.T) {
+	// 요청 3,000원인데 2,000원만 보냈으면 통계도 2,000원이어야 한다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+	now := time.Now()
+
+	in := claimInput(storeID, m.ID, "k1")
+	in.AmountKRW = 3000
+	res, err := s.CreateClaim(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := &domain.Claim{ID: res.ID, StoreID: storeID, AmountKRW: 3000, Status: domain.StatusPending}
+	ev, _ := c.Transition(domain.StatusApproved, domain.Actor{Kind: domain.ActorOwner}, "")
+	if err := s.ApplyTransition(ctx, storeID, c, ev); err != nil {
+		t.Fatal(err)
+	}
+	c.PayoutMethod = domain.PayoutManual
+	c.PaidAmountKRW = 2000
+	ev, _ = c.Transition(domain.StatusPaid, domain.Actor{Kind: domain.ActorOwner}, "")
+	if err := s.ApplyTransition(ctx, storeID, c, ev); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := s.DailyStats(ctx, storeID, now.AddDate(0, 0, -1), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, d := range stats {
+		total += d.PaidTotalKRW
+	}
+	if total != 2000 {
+		t.Errorf("일별 집계 = %d원, want 2000 — 요청액을 쓰고 있다", total)
+	}
+
+	contacts, err := s.ListContacts(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contacts) != 1 || contacts[0].PaidTotalKRW != 2000 {
+		t.Errorf("연락처 집계 = %+v, want 2000원", contacts)
+	}
+}
+
+func TestPayoutSettings_왕복(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	got, err := s.StoreByID(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PayoutProvider != "" {
+		t.Errorf("기본 provider = %q, want 빈 문자열", got.PayoutProvider)
+	}
+
+	upd, err := s.UpdatePayoutSettings(ctx, storeID, PayoutSettings{
+		Provider: "toss", BankCode: "090", Account: "1002123456789",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upd.PayoutProvider != "toss" || upd.PayoutAccount != "1002123456789" {
+		t.Errorf("설정 = %+v", upd)
+	}
+
+	// 출금 계좌도 암호화되어 저장돼야 한다. 사장님 계좌도 개인정보다.
+	var leaked int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM stores
+		 WHERE encode(payout_account_enc,'escape') LIKE '%1002123456789%'`).Scan(&leaked); err != nil {
+		t.Fatal(err)
+	}
+	if leaked != 0 {
+		t.Error("출금 계좌가 평문으로 저장됐다")
+	}
+}

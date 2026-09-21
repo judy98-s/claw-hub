@@ -25,7 +25,7 @@ func (s *Store) DailyStats(ctx context.Context, storeID string, from, to time.Ti
 		SELECT to_char(d::date, 'YYYY-MM-DD'),
 		       COUNT(c.id),
 		       COUNT(c.id) FILTER (WHERE c.status='paid'),
-		       COALESCE(SUM(c.amount_krw) FILTER (WHERE c.status='paid'), 0)
+		       COALESCE(SUM(COALESCE(c.paid_amount_krw, c.amount_krw)) FILTER (WHERE c.status='paid'), 0)
 		  FROM generate_series($2::date, $3::date, interval '1 day') d
 		  LEFT JOIN claims c
 		         ON c.store_id = $1 AND c.created_at::date = d::date
@@ -123,7 +123,7 @@ func (s *Store) DailyDigest(ctx context.Context, day time.Time) ([]DigestRow, er
 	rows, err := s.pool.Query(ctx, `
 		SELECT store_id, COUNT(*),
 		       COUNT(*) FILTER (WHERE status='paid'),
-		       COALESCE(SUM(amount_krw) FILTER (WHERE status='paid'), 0)
+		       COALESCE(SUM(COALESCE(paid_amount_krw, amount_krw)) FILTER (WHERE status='paid'), 0)
 		  FROM claims WHERE created_at >= $1 AND created_at < $2
 		 GROUP BY store_id`, start, end)
 	if err != nil {
