@@ -30,6 +30,10 @@ cp .env.example .env
 $EDITOR .env
 ```
 
+`.env` 는 api·worker·setup 이 실행될 때 **자동으로 읽는다.** 따로 `export`
+하거나 `source` 할 필요가 없다. 진짜 환경변수가 있으면 그쪽이 이긴다 —
+도커 compose 의 `environment` 와 CI 비밀값이 파일을 덮어야 하기 때문이다.
+
 `.env` 에 반드시 채워야 하는 것:
 
 | 키 | 설명 |

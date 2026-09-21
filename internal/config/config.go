@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -52,8 +51,18 @@ type Config struct {
 // Getenv는 환경변수 조회 함수다. 테스트에서 주입할 수 있게 분리했다.
 type Getenv func(string) string
 
-// Load는 프로세스 환경변수에서 설정을 읽는다.
-func Load() (Config, error) { return LoadFrom(os.Getenv) }
+// Load는 설정을 읽는다.
+//
+// 작업 디렉터리에 .env 가 있으면 함께 읽는다. 진짜 환경변수가 우선한다.
+// 파일이 없어도 정상이다 — 도커나 CI 에서는 환경변수로 넘어온다.
+func Load() (Config, error) {
+	file, found := loadDotEnv(DotEnvPath)
+	cfg, err := LoadFrom(envWithDotEnv(file))
+	if err != nil && !found {
+		return Config{}, fmt.Errorf("%w\n\n  이 디렉터리에 .env 가 없습니다. `cp .env.example .env` 후 `make keys` 로 값을 채우세요.", err)
+	}
+	return cfg, err
+}
 
 // LoadFrom은 주어진 조회 함수로 설정을 읽는다.
 //
