@@ -1246,3 +1246,297 @@ func TestMachineAlertsFor_임계치_이상만_돌려준다(t *testing.T) {
 		t.Fatalf("알림 = %+v", got)
 	}
 }
+
+// ── 재고 장부 ──────────────────────────────────────────────────────────
+
+func purchaseInput(storeID, key string) CreatePurchaseInput {
+	return CreatePurchaseInput{
+		StoreID: storeID,
+		Name:    "쿠로미 중형 30cm", Vendor: "캐치돌",
+		UnitPriceKRW: 2300, Qty: 60, ShippingKRW: 3000,
+		PurchasedAt:    time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC),
+		IdempotencyKey: key,
+	}
+}
+
+func TestCreatePurchase_저장하고_되읽는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	p, existing, err := s.CreatePurchase(ctx, purchaseInput(storeID, "buy-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if existing {
+		t.Error("첫 등록인데 existing=true")
+	}
+	// 141,000원 / 60개
+	if p.UnitCostKRW != 2350 {
+		t.Errorf("UnitCostKRW = %d, want 2350", p.UnitCostKRW)
+	}
+	if p.TotalKRW != 141000 {
+		t.Errorf("TotalKRW = %d, want 141000", p.TotalKRW)
+	}
+
+	list, err := s.ListPurchases(ctx, storeID, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Name != "쿠로미 중형 30cm" {
+		t.Fatalf("목록 = %+v", list)
+	}
+	if list[0].UnitCostKRW != 2350 {
+		t.Errorf("되읽은 UnitCostKRW = %d — 읽을 때 계산이 안 된다", list[0].UnitCostKRW)
+	}
+}
+
+func TestCreatePurchase_같은_멱등키는_기존건을_돌려준다(t *testing.T) {
+	// 제출 버튼을 두 번 누르면 60개가 120개가 되고, 그 오차는 재고를
+	// 세어보기 전까지 드러나지 않는다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	first, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "double-tap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, existing, err := s.CreatePurchase(ctx, purchaseInput(storeID, "double-tap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !existing {
+		t.Error("existing=false — 새 행이 생겼다")
+	}
+	if again.ID != first.ID {
+		t.Errorf("다른 행이 돌아왔다: %s vs %s", again.ID, first.ID)
+	}
+
+	inv, err := s.InventoryFor(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv) != 1 || inv[0].QtyOnHand != 60 {
+		t.Fatalf("재고 = %+v — 120개가 됐다면 이중 등록이다", inv)
+	}
+}
+
+func TestInventory_같은_이름은_한_줄로_합쳐지고_평균은_수량가중이다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	// 2,000원 10개 / 3,000원 90개. 단순 평균은 2,500이지만 수량 가중은 2,900이다.
+	cheap := purchaseInput(storeID, "w-1")
+	cheap.UnitPriceKRW, cheap.Qty, cheap.ShippingKRW = 2000, 10, 0
+	dear := purchaseInput(storeID, "w-2")
+	dear.UnitPriceKRW, dear.Qty, dear.ShippingKRW = 3000, 90, 0
+	dear.Name = "쿠로미중형30cm" // 띄어쓰기가 달라도 같은 품목이다
+	dear.PurchasedAt = cheap.PurchasedAt.AddDate(0, 0, 3)
+	dear.Vendor = "돌하우스"
+
+	for _, in := range []CreatePurchaseInput{cheap, dear} {
+		if _, _, err := s.CreatePurchase(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	inv, err := s.InventoryFor(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv) != 1 {
+		t.Fatalf("품목이 %d줄이다 — 띄어쓰기가 다르다고 갈렸다: %+v", len(inv), inv)
+	}
+	r := inv[0]
+	if r.QtyOnHand != 100 || r.QtyBought != 100 {
+		t.Errorf("수량 = %d/%d, want 100", r.QtyOnHand, r.QtyBought)
+	}
+	if r.AvgUnitCostKRW != 2900 {
+		t.Errorf("AvgUnitCostKRW = %d, want 2900 (단순 평균 2500이 아니다)", r.AvgUnitCostKRW)
+	}
+	if r.ValueKRW != 290000 {
+		t.Errorf("ValueKRW = %d, want 290000", r.ValueKRW)
+	}
+	// 화면 표기는 가장 최근에 적은 이름을 쓴다.
+	if r.Name != "쿠로미중형30cm" || r.LastVendor != "돌하우스" {
+		t.Errorf("마지막 사입 정보 = %q / %q", r.Name, r.LastVendor)
+	}
+	if r.PurchaseCount != 2 {
+		t.Errorf("PurchaseCount = %d, want 2", r.PurchaseCount)
+	}
+}
+
+func TestAdjustInventory_수량이_내려가고_이력이_남는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "adj-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	key := domain.NameKey("쿠로미 중형 30cm")
+	if err := s.AdjustInventory(ctx, storeID, "", key, 42, "실사"); err != nil {
+		t.Fatal(err)
+	}
+
+	item, err := s.InventoryItem(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.QtyOnHand != 42 {
+		t.Errorf("QtyOnHand = %d, want 42", item.QtyOnHand)
+	}
+	// 사입 수량 자체는 그대로여야 한다. 조정이 과거를 고치면 안 된다.
+	if item.QtyBought != 60 {
+		t.Errorf("QtyBought = %d, want 60 — 조정이 사입 기록을 건드렸다", item.QtyBought)
+	}
+
+	hist, err := s.AdjustmentsFor(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 1 || hist[0].Delta != -18 || hist[0].CountedQty != 42 {
+		t.Fatalf("조정 이력 = %+v", hist)
+	}
+
+	// 0개도 정상이다. 다 팔렸다는 것도 정보다.
+	if err := s.AdjustInventory(ctx, storeID, "", key, 0, "다 나감"); err != nil {
+		t.Fatal(err)
+	}
+	item, err = s.InventoryItem(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.QtyOnHand != 0 {
+		t.Errorf("QtyOnHand = %d, want 0", item.QtyOnHand)
+	}
+	if item.ValueKRW != 0 {
+		t.Errorf("ValueKRW = %d — 수량 0인데 자산이 남아 있다", item.ValueKRW)
+	}
+}
+
+func TestInventory_수량0인_품목도_목록에_남는다(t *testing.T) {
+	// 목록에서 사라지면 "내가 이거 산 적 있었나"를 확인할 길이 없어진다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "zero-1")); err != nil {
+		t.Fatal(err)
+	}
+	key := domain.NameKey("쿠로미 중형 30cm")
+	if err := s.AdjustInventory(ctx, storeID, "", key, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	inv, err := s.InventoryFor(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv) != 1 {
+		t.Fatalf("수량 0인 품목이 목록에서 사라졌다: %+v", inv)
+	}
+}
+
+func TestInventory_남의_매장은_보이지_않는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mine, _ := fixture(t, s)
+	theirs, _ := fixture(t, s)
+
+	mineIn := purchaseInput(mine, "iso-mine")
+	theirsIn := purchaseInput(theirs, "iso-theirs")
+	theirsIn.Name = "포켓몬 키링"
+	for _, in := range []CreatePurchaseInput{mineIn, theirsIn} {
+		if _, _, err := s.CreatePurchase(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	inv, err := s.InventoryFor(ctx, mine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv) != 1 || inv[0].Name != "쿠로미 중형 30cm" {
+		t.Errorf("재고 = %+v — 남의 매장 품목이 섞였다", inv)
+	}
+
+	list, err := s.ListPurchases(ctx, mine, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Errorf("사입 이력 = %+v", list)
+	}
+
+	// 자동완성이 특히 위험하다. 한 글자만 쳐도 남의 매장 품목이 쏟아질 수 있다.
+	names, err := s.DollNameSuggestions(ctx, mine, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range names {
+		if strings.Contains(n, "포켓몬") {
+			t.Fatalf("자동완성에 남의 매장 품목이 나왔다: %v", names)
+		}
+	}
+
+	if _, err := s.InventoryItem(ctx, mine, domain.NameKey("포켓몬 키링")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("남의 매장 품목 상세가 열렸다: %v", err)
+	}
+}
+
+func TestDollNameSuggestions_띄어쓰기를_무시하고_찾는다(t *testing.T) {
+	// 사장님이 "쿠로미중형"이라 쳐도 "쿠로미 중형 30cm"가 나와야 한다.
+	// 그게 이 기능의 존재 이유다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "sug-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, q := range []string{"쿠로미중형", "쿠로미 중형", "  쿠로미", "30CM"} {
+		got, err := s.DollNameSuggestions(ctx, storeID, q, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 {
+			t.Errorf("%q → %v, 한 건이 나와야 한다", q, got)
+		}
+	}
+	if got, _ := s.DollNameSuggestions(ctx, storeID, "짱구", 0); len(got) != 0 {
+		t.Errorf("없는 이름에 %v 가 나왔다", got)
+	}
+}
+
+func TestInventorySummaryFor_기간지출과_현재자산(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	in := purchaseInput(storeID, "sum-1")
+	if _, _, err := s.CreatePurchase(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	old := purchaseInput(storeID, "sum-2")
+	old.Name = "짱구 대형"
+	old.PurchasedAt = in.PurchasedAt.AddDate(0, -3, 0) // 기간 밖
+	if _, _, err := s.CreatePurchase(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	sum, err := s.InventorySummaryFor(ctx, storeID, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.SpentKRW != 141000 {
+		t.Errorf("SpentKRW = %d, want 141000 (기간 밖 건이 섞였다)", sum.SpentKRW)
+	}
+	// 자산은 기간과 무관하게 현재 보유분 전부다.
+	if sum.ItemCount != 2 || sum.QtyOnHand != 120 {
+		t.Errorf("ItemCount=%d QtyOnHand=%d", sum.ItemCount, sum.QtyOnHand)
+	}
+}

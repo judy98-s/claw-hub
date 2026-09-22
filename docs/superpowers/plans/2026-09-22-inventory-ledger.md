@@ -113,7 +113,7 @@ Next.js 15 App Router, Tailwind v4, Pretendard, Phosphor Icons.
   전부 제거 + 소문자화. 왜 공백을 "접는" 게 아니라 "지우는"지 주석으로 남긴다.
 - [ ] **Step 4: 테스트 통과 확인**
 - [ ] **Step 5: `arch_test.go`가 여전히 통과하는지 확인** (domain 격리)
-- [ ] **Step 6: 커밋** `feat(domain): 사입 단가 계산과 인형 이름 정규화`
+- [x] **Step 6: 커밋** `feat(domain): 사입 단가 계산과 인형 이름 정규화`
 
 ---
 
