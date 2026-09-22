@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,13 @@ type fakeStore struct {
 	byIdemKey map[string]string            // storeID|key -> claimID
 	nextID    int
 
+	purchases     map[string]store.Purchase // id -> purchase
+	purchaseStore map[string]string         // id -> storeID
+	purchaseByKey map[string]string         // storeID|idemKey -> id
+	purchaseOrder []string                  // 등록 순서
+	adjustDelta   map[string]int            // storeID|nameKey -> 누적 delta
+	adjustments   map[string][]store.Adjustment
+
 	facts domain.RiskInput
 
 	user        store.User
@@ -40,14 +48,19 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		machines:    map[string]domain.Machine{},
-		claims:      map[string]store.ClaimDetail{},
-		byIdemKey:   map[string]string{},
-		info:        store.StoreInfo{Name: "테스트 매장", Phone: "0212345678"},
-		facts:       domain.RiskInput{PhoneClaims30d: 1, AccountDistinctPhones: 1, ManualStatus: domain.ContactNormal},
-		user:        owner,
-		users:       []store.User{owner},
-		storeDetail: store.StoreDetail{ID: "store-1", Name: "테스트 매장", Phone: "0212345678"},
+		machines:      map[string]domain.Machine{},
+		claims:        map[string]store.ClaimDetail{},
+		byIdemKey:     map[string]string{},
+		purchases:     map[string]store.Purchase{},
+		purchaseStore: map[string]string{},
+		purchaseByKey: map[string]string{},
+		adjustDelta:   map[string]int{},
+		adjustments:   map[string][]store.Adjustment{},
+		info:          store.StoreInfo{Name: "테스트 매장", Phone: "0212345678"},
+		facts:         domain.RiskInput{PhoneClaims30d: 1, AccountDistinctPhones: 1, ManualStatus: domain.ContactNormal},
+		user:          owner,
+		users:         []store.User{owner},
+		storeDetail:   store.StoreDetail{ID: "store-1", Name: "테스트 매장", Phone: "0212345678"},
 	}
 }
 
@@ -519,5 +532,203 @@ func (f *fakeStore) MachineAlertsFor(_ context.Context, storeID string, threshol
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out, nil
+}
+
+// ── 재고 장부 ──────────────────────────────────────────────────────────
+//
+// 진짜 저장소와 같은 규칙으로 계산한다. 고정값을 돌려주면 핸들러 테스트가
+// 아무것도 검증하지 못한다.
+
+func (f *fakeStore) CreatePurchase(_ context.Context, in store.CreatePurchaseInput) (store.Purchase, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	key := in.StoreID + "|" + in.IdempotencyKey
+	if id, ok := f.purchaseByKey[key]; ok {
+		return f.purchases[id], true, nil
+	}
+
+	f.nextID++
+	p := store.Purchase{
+		ID:   fmt.Sprintf("purchase-%08d", f.nextID),
+		Name: strings.TrimSpace(in.Name), NameKey: domain.NameKey(in.Name),
+		Vendor: strings.TrimSpace(in.Vendor), QtyTotal: in.Qty,
+		UnitPriceKRW: in.UnitPriceKRW, ShippingKRW: in.ShippingKRW,
+		UnitCostKRW: domain.UnitCostKRW(in.UnitPriceKRW, in.Qty, in.ShippingKRW),
+		TotalKRW:    domain.TotalCostKRW(in.UnitPriceKRW, in.Qty, in.ShippingKRW),
+		PurchasedAt: in.PurchasedAt, ReceiptKey: in.ReceiptKey,
+		HasReceipt: in.ReceiptKey != "",
+	}
+	f.purchases[p.ID] = p
+	f.purchaseStore[p.ID] = in.StoreID
+	f.purchaseByKey[key] = p.ID
+	f.purchaseOrder = append(f.purchaseOrder, p.ID)
+	return p, false, nil
+}
+
+// storePurchases는 한 매장의 사입을 최신순으로 모은다.
+func (f *fakeStore) storePurchases(storeID, nameKey string) []store.Purchase {
+	out := []store.Purchase{}
+	for i := len(f.purchaseOrder) - 1; i >= 0; i-- {
+		id := f.purchaseOrder[i]
+		if f.purchaseStore[id] != storeID {
+			continue
+		}
+		p := f.purchases[id]
+		if nameKey != "" && p.NameKey != nameKey {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].PurchasedAt.After(out[j].PurchasedAt) })
+	return out
+}
+
+func (f *fakeStore) ListPurchases(_ context.Context, storeID, nameKey string, limit int) ([]store.Purchase, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.storePurchases(storeID, nameKey)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeStore) inventoryRows(storeID string) []store.InventoryRow {
+	byKey := map[string]*store.InventoryRow{}
+	spent := map[string]int{}
+	order := []string{}
+
+	for _, p := range f.storePurchases(storeID, "") {
+		r, ok := byKey[p.NameKey]
+		if !ok {
+			r = &store.InventoryRow{
+				NameKey: p.NameKey, Name: p.Name,
+				LastVendor: p.Vendor, LastUnitCostKRW: p.UnitCostKRW,
+				LastPurchasedAt: p.PurchasedAt,
+			}
+			byKey[p.NameKey] = r
+			order = append(order, p.NameKey)
+		}
+		r.QtyBought += p.QtyTotal
+		r.PurchaseCount++
+		spent[p.NameKey] += p.TotalKRW
+	}
+
+	out := []store.InventoryRow{}
+	for _, k := range order {
+		r := byKey[k]
+		r.QtyOnHand = r.QtyBought + f.adjustDelta[storeID+"|"+k]
+		if r.QtyBought > 0 {
+			r.AvgUnitCostKRW = (spent[k] + r.QtyBought/2) / r.QtyBought
+		}
+		if r.QtyOnHand > 0 {
+			r.ValueKRW = r.QtyOnHand * r.AvgUnitCostKRW
+		}
+		out = append(out, *r)
+	}
+	return out
+}
+
+func (f *fakeStore) InventoryFor(_ context.Context, storeID string) ([]store.InventoryRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inventoryRows(storeID), nil
+}
+
+func (f *fakeStore) InventoryItem(_ context.Context, storeID, nameKey string) (store.InventoryRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, r := range f.inventoryRows(storeID) {
+		if r.NameKey == nameKey {
+			return r, nil
+		}
+	}
+	return store.InventoryRow{}, store.ErrNotFound
+}
+
+func (f *fakeStore) InventorySummaryFor(_ context.Context, storeID string, from, to time.Time) (store.InventorySummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var sum store.InventorySummary
+	for _, p := range f.storePurchases(storeID, "") {
+		if !p.PurchasedAt.Before(from) && p.PurchasedAt.Before(to) {
+			sum.SpentKRW += p.TotalKRW
+		}
+	}
+	rows := f.inventoryRows(storeID)
+	sum.ItemCount = len(rows)
+	for _, r := range rows {
+		if r.QtyOnHand > 0 {
+			sum.QtyOnHand += r.QtyOnHand
+			sum.ValueKRW += r.ValueKRW
+		}
+	}
+	return sum, nil
+}
+
+func (f *fakeStore) AdjustInventory(ctx context.Context, storeID, userID, nameKey string, countedQty int, note string) error {
+	cur, err := f.InventoryItem(ctx, storeID, nameKey)
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delta := countedQty - cur.QtyOnHand
+	f.adjustDelta[storeID+"|"+nameKey] += delta
+	f.adjustments[storeID+"|"+nameKey] = append(
+		[]store.Adjustment{{Delta: delta, CountedQty: countedQty, Note: note, At: time.Now()}},
+		f.adjustments[storeID+"|"+nameKey]...)
+	return nil
+}
+
+func (f *fakeStore) AdjustmentsFor(_ context.Context, storeID, nameKey string) ([]store.Adjustment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := f.adjustments[storeID+"|"+nameKey]
+	if out == nil {
+		out = []store.Adjustment{}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) DollNameSuggestions(_ context.Context, storeID, q string, limit int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	key := domain.NameKey(q)
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range f.storePurchases(storeID, "") {
+		if seen[p.NameKey] || (key != "" && !strings.Contains(p.NameKey, key)) {
+			continue
+		}
+		seen[p.NameKey] = true
+		out = append(out, p.Name)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) VendorSuggestions(_ context.Context, storeID string, limit int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range f.storePurchases(storeID, "") {
+		if p.Vendor == "" || seen[p.Vendor] {
+			continue
+		}
+		seen[p.Vendor] = true
+		out = append(out, p.Vendor)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
 	return out, nil
 }

@@ -52,6 +52,17 @@ type Store interface {
 
 	HomeSummaryFor(ctx context.Context, storeID string, now time.Time) (store.HomeSummary, error)
 	MachineAlertsFor(ctx context.Context, storeID string, threshold int, now time.Time) ([]store.MachineAlert, error)
+
+	// 재고 장부
+	CreatePurchase(ctx context.Context, in store.CreatePurchaseInput) (store.Purchase, bool, error)
+	ListPurchases(ctx context.Context, storeID, nameKey string, limit int) ([]store.Purchase, error)
+	InventoryFor(ctx context.Context, storeID string) ([]store.InventoryRow, error)
+	InventoryItem(ctx context.Context, storeID, nameKey string) (store.InventoryRow, error)
+	InventorySummaryFor(ctx context.Context, storeID string, from, to time.Time) (store.InventorySummary, error)
+	AdjustInventory(ctx context.Context, storeID, userID, nameKey string, countedQty int, note string) error
+	AdjustmentsFor(ctx context.Context, storeID, nameKey string) ([]store.Adjustment, error)
+	DollNameSuggestions(ctx context.Context, storeID, q string, limit int) ([]string, error)
+	VendorSuggestions(ctx context.Context, storeID string, limit int) ([]string, error)
 }
 
 // Server는 의존성을 모아 라우터를 만든다.
@@ -144,6 +155,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/contacts", s.authed(s.handleListContacts))
 	mux.Handle("PATCH /api/admin/contacts/{hash}", s.authed(s.handleSetContactStatus))
 	mux.Handle("GET /api/admin/stats/daily", s.authed(s.handleDailyStats))
+
+	mux.Handle("GET /api/admin/inventory", s.authed(s.handleInventory))
+	mux.Handle("GET /api/admin/inventory/{nameKey}", s.authed(s.handleInventoryItem))
+	mux.Handle("POST /api/admin/inventory/{nameKey}/count", s.authed(s.handleCountInventory))
+	mux.Handle("GET /api/admin/purchases", s.authed(s.handleListPurchases))
+	mux.Handle("POST /api/admin/purchases", s.authed(s.handleCreatePurchase))
+	mux.Handle("GET /api/admin/suggestions", s.authed(s.handleSuggestions))
 
 	mux.Handle("PATCH /api/admin/me", s.authed(s.handleUpdateMe))
 	mux.Handle("GET /api/admin/store", s.authed(s.handleGetStore))
