@@ -39,7 +39,7 @@ type Bank = { code: string; name: string };
  */
 const ISSUES = [
   { value: "doll_stuck", label: "인형 걸림", hint: "집었는데 중간에 걸렸어요" },
-  { value: "cash_eaten", label: "현금 먹음", hint: "돈만 들어가고 안 나와요" },
+  { value: "cash_eaten", label: "돈만 빠짐", hint: "결제는 됐는데 안 나와요" },
   { value: "claw_broken", label: "집게 불량", hint: "집는 힘이 너무 약해요" },
   { value: "other", label: "기타", hint: "그 외 문제" },
 ] as const;
@@ -347,8 +347,34 @@ export function ClaimForm({
 
         <hr className="border-[var(--line)]" />
 
+        {/* 환불 정보 */}
+        <Field
+          label="연락처"
+          required
+          hint="환불 확인을 위해 연락드릴 수 있습니다."
+        >
+          <div className="relative">
+            <Phone
+              size={18}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+            />
+            <Input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="010-1234-5678"
+              className="pl-10"
+              required
+            />
+          </div>
+        </Field>
+
         {/*
-          결제 수단이 환불 정보보다 먼저다. 이 선택에 따라 아래에서
+          결제 수단을 고르는 순간 아래가 통째로 바뀐다. 그래서 연락처처럼
+          양쪽에 다 필요한 것을 먼저 받고, 갈리는 것은 이 다음에 둔다.
+          안내 문구가 선택 바로 아래 붙어야 "계좌는 왜 안 물어보지"가 없다. 이 선택에 따라 아래에서
           물어볼 것이 통째로 바뀐다.
         */}
         <fieldset className="grid gap-2">
@@ -384,30 +410,6 @@ export function ClaimForm({
             })}
           </div>
         </fieldset>
-
-        {/* 환불 정보 */}
-        <Field
-          label="연락처"
-          required
-          hint="환불 확인을 위해 연락드릴 수 있습니다."
-        >
-          <div className="relative">
-            <Phone
-              size={18}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]"
-            />
-            <Input
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="010-1234-5678"
-              className="pl-10"
-              required
-            />
-          </div>
-        </Field>
 
         {/*
           카드 결제는 계좌로 보내지 않는다. 사장님이 단말기에서 승인을

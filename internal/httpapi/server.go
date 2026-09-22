@@ -49,6 +49,9 @@ type Store interface {
 	ListContacts(ctx context.Context, storeID string) ([]store.ContactSummary, error)
 	SetContactStatus(ctx context.Context, storeID string, hash []byte, kind, status, note, by string) error
 	DailyStats(ctx context.Context, storeID string, from, to time.Time) ([]store.DailyStat, error)
+
+	HomeSummaryFor(ctx context.Context, storeID string, now time.Time) (store.HomeSummary, error)
+	MachineAlertsFor(ctx context.Context, storeID string, threshold int, now time.Time) ([]store.MachineAlert, error)
 }
 
 // Server는 의존성을 모아 라우터를 만든다.
@@ -120,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/login", s.handleLogin)
 	mux.HandleFunc("POST /api/admin/logout", s.handleLogout)
 	mux.Handle("GET /api/admin/me", s.authed(s.handleMe))
+	mux.Handle("GET /api/admin/home", s.authed(s.handleHome))
 	mux.Handle("GET /api/admin/claims", s.authed(s.handleListClaims))
 	// 아래 라우트들은 로그인 세션 또는 Slack 링크의 서명 토큰으로 들어온다.
 	// 토큰은 그 건 하나에만 통하므로, 링크가 새어도 다른 손님의 계좌는

@@ -207,7 +207,7 @@ func TestIssueType_한국어_라벨(t *testing.T) {
 	// 라벨은 Slack 알림과 대시보드에 그대로 나간다. 비어 있으면 안 된다.
 	want := map[IssueType]string{
 		IssueDollStuck:  "인형 걸림",
-		IssueCashEaten:  "현금 먹음",
+		IssueCashEaten:  "돈만 빠짐",
 		IssueClawBroken: "집게 불량",
 		IssueOther:      "기타",
 	}

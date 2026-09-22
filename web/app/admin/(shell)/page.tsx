@@ -4,186 +4,171 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  CreditCard,
-  Image as ImageIcon,
-  ShieldWarning,
+  ArrowRight,
+  CheckCircle,
+  Clock,
+  GameController,
+  GearSix,
+  PaperPlaneTilt,
+  Warning,
 } from "@phosphor-icons/react";
 
 import { ApiError, get } from "@/lib/api";
-import { ago, krw } from "@/lib/format";
-import { Badge, toneForStatus } from "@/components/ui/badge";
-import type { RiskReason } from "@/components/risk-badge";
+import { krw } from "@/lib/format";
 
-type ClaimSummary = {
-  id: string;
-  machineLabel: string;
-  issueLabel: string;
-  paymentMethod: string;
-  amountKrw: number;
-  status: string;
-  statusLabel: string;
-  riskReasons: RiskReason[];
-  phoneMasked: string;
-  photoCount: number;
-  createdAt: string;
+type HomeAction = {
+  kind: string;
+  severity: "stop" | "warn" | "neutral";
+  title: string;
+  detail: string;
+  count: number;
+  href: string;
+};
+
+type Home = {
+  storeName: string;
+  actions: HomeAction[];
+  todayClaims: number;
+  todayPaid: number;
+  todayPaidKrw: number;
 };
 
 /**
- * 탭은 "내가 지금 뭘 해야 하나"로 나눈다.
- *
- * pending 과 needs_review 를 한 탭에 묶은 이유: 사장님 입장에서는 둘 다
- * "내가 봐야 할 것"이다. 나눠두면 두 군데를 확인해야 하고, 한쪽을 잊는다.
- * 고액·리스크 건이라는 구분은 없애지 않고 배지로 남겨서, 같은 목록 안에서
- * 눈에 띄게 했다.
+ * 종류마다 아이콘이 다르다. 전부 같은 동그라미를 쓰면 목록을 눈으로
+ * 훑을 수 없고, 그러면 순서를 아무리 잘 잡아도 소용이 없다.
  */
-const TABS = [
-  { key: "needs_review,pending", label: "처리 대기" },
-  { key: "on_hold", label: "보류" },
-  { key: "approved", label: "송금 대기" },
-  { key: "paid,rejected", label: "완료" },
-] as const;
+const ICONS: Record<string, typeof Warning> = {
+  payout_pending: PaperPlaneTilt,
+  needs_review: Warning,
+  pending: Clock,
+  stale_on_hold: Clock,
+  machine_alert: GameController,
+  setup_payout: GearSix,
+};
+
+const SEVERITY: Record<HomeAction["severity"], string> = {
+  stop: "bg-[var(--tone-stop-bg)] text-[var(--tone-stop-fg)]",
+  warn: "bg-[var(--tone-warn-bg)] text-[var(--tone-warn-fg)]",
+  neutral: "bg-[var(--surface-sunken)] text-[var(--muted)]",
+};
 
 const POLL_MS = 30_000;
 
-export default function InboxPage() {
+/**
+ * 홈.
+ *
+ * 이 화면의 질문은 하나다 — "지금 내가 뭘 해야 하나". 그래서 통계가 아니라
+ * 할 일이 먼저 온다. 순서는 서버가 정한다: 승인해놓고 안 보낸 환불이 가장
+ * 위다. 손님에게 돈을 약속하고 주지 않은 상태이고, 새 신고보다 급하다.
+ *
+ * 할 일이 하나도 없으면 그 사실 자체가 화면이다. 빈 목록에 "표시할 항목이
+ * 없습니다"를 띄우면 사장님은 뭔가 고장났나 생각한다.
+ */
+export default function HomePage() {
   const router = useRouter();
-  const [tab, setTab] = useState<string>(TABS[0].key);
-  const [claims, setClaims] = useState<ClaimSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState("");
 
-  const load = useCallback(
-    async (status: string) => {
-      try {
-        const res = await get<{ claims: ClaimSummary[] }>(
-          `/api/admin/claims?status=${encodeURIComponent(status)}`,
-        );
-        // 확인이 필요한 건을 위로 올린다. 같은 목록에 섞어두면 소액
-        // 대기 건 사이에 고액 건이 묻힌다.
-        const rank = (c: ClaimSummary) =>
-          c.status === "needs_review" || c.riskReasons.length > 0 ? 0 : 1;
-        setClaims([...(res.claims ?? [])].sort((a, b) => rank(a) - rank(b)));
-        setError("");
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          router.replace("/admin/login");
-          return;
-        }
-        setError(
-          err instanceof ApiError ? err.message : "목록을 불러오지 못했습니다.",
-        );
-      } finally {
-        setLoading(false);
+  const load = useCallback(async () => {
+    try {
+      setHome(await get<Home>("/api/admin/home"));
+      setError("");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        router.replace("/admin/login");
+        return;
       }
-    },
-    [router],
-  );
+      setError(err instanceof ApiError ? err.message : "불러오지 못했습니다.");
+    }
+  }, [router]);
 
   useEffect(() => {
-    setLoading(true);
-    void load(tab);
-
-    // 폴링. 사장님이 화면을 켜둔 채 매장을 보고 있을 때 새 접수가 뜬다.
-    const timer = setInterval(() => void load(tab), POLL_MS);
+    void load();
+    const timer = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(timer);
-  }, [tab, load]);
+  }, [load]);
 
   return (
-    <main className="mx-auto max-w-lg px-4 pt-6">
-      <h1 className="mb-4 text-xl font-bold">접수함</h1>
-
-      <div className="-mx-4 mb-4 overflow-x-auto px-4">
-        <div className="flex gap-2">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              aria-pressed={tab === t.key}
-              className={[
-                "h-9 shrink-0 rounded-full px-4 text-sm font-semibold transition-colors duration-150",
-                tab === t.key
-                  ? "bg-accent-600 text-white"
-                  : "bg-[var(--surface-sunken)] text-[var(--muted)]",
-              ].join(" ")}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <main className="mx-auto max-w-2xl px-4 pt-6">
+      <header className="mb-5">
+        <p className="text-sm text-[var(--muted)]">{home?.storeName ?? " "}</p>
+        <h1 className="text-xl font-bold">확인이 필요한 것</h1>
+      </header>
 
       {error && (
         <p
           role="alert"
-          className="rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+          className="mb-4 rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
         >
           {error}
         </p>
       )}
 
-      {loading ? (
+      {!home ? (
         <ul className="grid gap-2">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="surface h-24 animate-pulse" />
+          {[0, 1].map((i) => (
+            <li key={i} className="surface h-20 animate-pulse" />
           ))}
         </ul>
-      ) : claims.length === 0 ? (
-        <p className="py-16 text-center text-[var(--muted)]">
-          여기에 표시할 접수가 없습니다.
-        </p>
+      ) : home.actions.length === 0 ? (
+        <div className="surface grid justify-items-center gap-2 px-4 py-12 text-center">
+          <CheckCircle size={40} weight="fill" className="text-ok-600" />
+          <p className="font-semibold">지금 처리할 게 없습니다</p>
+          <p className="text-sm text-[var(--muted)]">
+            새 신고가 들어오면 Slack 알림이 가고 여기에도 올라옵니다.
+          </p>
+        </div>
       ) : (
         <ul className="grid gap-2">
-          {claims.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/admin/claims/${c.id}`}
-                className="surface block p-3.5"
-              >
-                <div className="mb-1.5 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">
-                      {c.machineLabel} · {c.issueLabel}
-                    </p>
-                    <p className="mt-0.5 text-sm text-[var(--muted)]">
-                      {c.phoneMasked} · {ago(c.createdAt)}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-base font-bold tabular-nums">
-                    {krw(c.amountKrw)}
+          {home.actions.map((a) => {
+            const Icon = ICONS[a.kind] ?? Warning;
+            return (
+              <li key={a.kind + a.href}>
+                <Link
+                  href={a.href}
+                  className="surface flex items-center gap-3.5 p-3.5 transition-colors duration-150 hover:bg-[var(--surface-sunken)]"
+                >
+                  <span
+                    className={`grid size-10 shrink-0 place-items-center rounded-lg ${SEVERITY[a.severity]}`}
+                  >
+                    <Icon size={20} weight="fill" />
                   </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge tone={toneForStatus(c.status)}>{c.statusLabel}</Badge>
-                  {/* 카드 건은 송금이 아니라 단말기 취소다. 목록에서 갈린다. */}
-                  {c.paymentMethod === "card" && (
-                    <Badge
-                      tone="accent"
-                      icon={<CreditCard size={12} weight="regular" />}
-                    >
-                      카드
-                    </Badge>
-                  )}
-                  {c.riskReasons.length > 0 && (
-                    <Badge
-                      tone="warn"
-                      icon={<ShieldWarning size={12} weight="fill" />}
-                    >
-                      확인 {c.riskReasons.length}건
-                    </Badge>
-                  )}
-                  {c.photoCount > 0 && (
-                    <Badge icon={<ImageIcon size={12} weight="regular" />}>
-                      사진 {c.photoCount}
-                    </Badge>
-                  )}
-                </div>
-              </Link>
-            </li>
-          ))}
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold">{a.title}</span>
+                    <span className="mt-0.5 block text-sm text-[var(--muted)]">
+                      {a.detail}
+                    </span>
+                  </span>
+                  <ArrowRight
+                    size={18}
+                    weight="bold"
+                    className="shrink-0 text-[var(--muted)]"
+                  />
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
+
+      {/* 오늘 숫자는 할 일 아래다. 읽으면 좋지만 누구도 이걸 보러 오지 않는다. */}
+      <section className="mt-6">
+        <h2 className="mb-2 text-sm font-semibold text-[var(--muted)]">오늘</h2>
+        <dl className="surface grid grid-cols-3 divide-x divide-[var(--line)]">
+          <Stat label="접수" value={`${home?.todayClaims ?? 0}건`} />
+          <Stat label="환불" value={`${home?.todayPaid ?? 0}건`} />
+          <Stat label="나간 금액" value={krw(home?.todayPaidKrw ?? 0)} />
+        </dl>
+      </section>
     </main>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-0.5 px-3 py-3.5">
+      <dt className="text-xs text-[var(--muted)]">{label}</dt>
+      <dd className="text-lg font-bold tabular-nums">{value}</dd>
+    </div>
   );
 }

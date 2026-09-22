@@ -57,7 +57,7 @@ type IssueType string
 
 const (
 	IssueDollStuck  IssueType = "doll_stuck"  // 인형 걸림
-	IssueCashEaten  IssueType = "cash_eaten"  // 현금 먹음
+	IssueCashEaten  IssueType = "cash_eaten"  // 돈만 빠짐 (현금·카드 공통)
 	IssueClawBroken IssueType = "claw_broken" // 집게 불량
 	IssueOther      IssueType = "other"       // 기타
 )
@@ -67,8 +67,10 @@ func AllIssueTypes() []IssueType {
 }
 
 var issueLabels = map[IssueType]string{
-	IssueDollStuck:  "인형 걸림",
-	IssueCashEaten:  "현금 먹음",
+	IssueDollStuck: "인형 걸림",
+	// "현금 먹음"이 아니라 "돈만 빠짐"이다. 결제 수단을 따로 묻게 된
+	// 뒤로는, 카드 결제 건이 "7번 기계 · 현금 먹음 · 카드"로 표시된다.
+	IssueCashEaten:  "돈만 빠짐",
 	IssueClawBroken: "집게 불량",
 	IssueOther:      "기타",
 }

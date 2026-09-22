@@ -101,7 +101,7 @@ func TestMachineAlert(t *testing.T) {
 			ByIssue: map[domain.IssueType]int{domain.IssueCashEaten: 2, domain.IssueClawBroken: 1},
 		})
 	})
-	for _, want := range []string{"3번 기계", "3건", "현금 먹음 2", "집게 불량 1", "점검"} {
+	for _, want := range []string{"3번 기계", "3건", "돈만 빠짐 2", "집게 불량 1", "점검"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("알림에 %q 가 없다: %s", want, body)
 		}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -208,6 +209,10 @@ func (f *fakeStore) ApplyTransition(_ context.Context, storeID string, c *domain
 		return store.ErrNotFound // 그 사이 남이 바꿨다
 	}
 	cur.Claim = *c
+	// 진짜 저장소는 상태 변경과 감사 이벤트를 한 트랜잭션에 쓴다.
+	// fake가 이벤트를 빼먹으면 "누가 승인했나", "언제 승인됐나"를
+	// 읽는 코드가 테스트에서만 빈손이 된다.
+	cur.Events = append(cur.Events, ev)
 	f.claims[c.ID] = cur
 	return nil
 }
@@ -440,3 +445,79 @@ func (failingCache) Close() error { return nil }
 
 // newEmptyPayout은 딥링크 템플릿이 하나도 없는 제공자를 만든다.
 func newEmptyPayout() payout.Payout { return payout.NewDeeplink(nil) }
+
+// HomeSummaryFor는 진짜 저장소와 같은 규칙으로 fake의 claims를 센다.
+// 숫자를 고정값으로 돌려주면 홈 화면 테스트가 아무것도 검증하지 못한다.
+func (f *fakeStore) HomeSummaryFor(_ context.Context, storeID string, now time.Time) (store.HomeSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var h store.HomeSummary
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, c := range f.claims {
+		if c.StoreID != storeID {
+			continue
+		}
+		switch c.Status {
+		case domain.StatusPending:
+			h.Pending++
+		case domain.StatusNeedsReview:
+			h.NeedsReview++
+		case domain.StatusOnHold:
+			h.OnHold++
+			if c.CreatedAt.Before(now.Add(-24 * time.Hour)) {
+				h.StaleOnHold++
+			}
+		case domain.StatusApproved:
+			h.Approved++
+			h.ApprovedAmountKRW += c.AmountKRW
+			at := approvedAt(c)
+			if !at.IsZero() && (h.OldestApprovedAt.IsZero() || at.Before(h.OldestApprovedAt)) {
+				h.OldestApprovedAt = at
+			}
+		case domain.StatusPaid:
+			if !c.PaidAt.Before(dayStart) {
+				h.TodayPaid++
+				h.TodayPaidKRW += c.PaidAmountKRW
+			}
+		}
+		if !c.CreatedAt.Before(dayStart) {
+			h.TodayClaims++
+		}
+	}
+	return h, nil
+}
+
+func approvedAt(c store.ClaimDetail) time.Time {
+	for _, e := range c.Events {
+		if e.To == domain.StatusApproved {
+			return e.At
+		}
+	}
+	return time.Time{}
+}
+
+func (f *fakeStore) MachineAlertsFor(_ context.Context, storeID string, threshold int, now time.Time) ([]store.MachineAlert, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	count := map[string]int{}
+	label := map[string]string{}
+	for _, c := range f.claims {
+		if c.StoreID != storeID || c.CreatedAt.Before(now.Add(-24*time.Hour)) {
+			continue
+		}
+		count[c.MachineID]++
+		label[c.MachineID] = c.MachineLabel
+	}
+
+	out := []store.MachineAlert{}
+	for id, n := range count {
+		if n >= threshold {
+			out = append(out, store.MachineAlert{MachineID: id, Label: label[id], Count: n})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out, nil
+}

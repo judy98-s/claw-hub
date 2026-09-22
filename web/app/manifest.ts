@@ -32,7 +32,7 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
-      { name: "접수함", url: "/admin" },
+      { name: "접수함", url: "/admin/claims" },
       { name: "기계", url: "/admin/machines" },
     ],
   };

@@ -157,7 +157,7 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
     <main className="mx-auto max-w-lg px-4 pb-8 pt-4">
       {!token && (
         <Link
-          href="/admin"
+          href="/admin/claims"
           className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--muted)]"
         >
           <ArrowLeft size={16} weight="bold" /> 접수함

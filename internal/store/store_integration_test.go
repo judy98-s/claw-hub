@@ -1131,3 +1131,118 @@ func TestRiskFactsFor_계좌없는_카드건은_계좌공유로_묶이지_않는
 		}
 	}
 }
+
+// ── 홈 요약 ────────────────────────────────────────────────────────────
+
+func TestHomeSummaryFor_상태별로_세고_승인시각을_감사로그에서_읽는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	// 접수 3건: 하나는 승인까지, 하나는 보류, 하나는 그대로 둔다.
+	ids := make([]string, 3)
+	for i := range ids {
+		res, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, fmt.Sprintf("home-%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = res.ID
+	}
+
+	by := domain.Actor{Kind: domain.ActorOwner}
+	approve := func(id string, to domain.Status) {
+		t.Helper()
+		d, err := s.ClaimByID(ctx, storeID, id, domain.Actor{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := d.Claim
+		ev, err := c.Transition(to, by, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ApplyTransition(ctx, storeID, &c, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	approve(ids[0], domain.StatusApproved)
+	approve(ids[1], domain.StatusOnHold)
+
+	h, err := s.HomeSummaryFor(ctx, storeID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Approved != 1 || h.OnHold != 1 || h.Pending != 1 {
+		t.Fatalf("approved=%d on_hold=%d pending=%d", h.Approved, h.OnHold, h.Pending)
+	}
+	if h.ApprovedAmountKRW != 2000 {
+		t.Errorf("ApprovedAmountKRW = %d, want 2000", h.ApprovedAmountKRW)
+	}
+	// approved는 종료 상태가 아니라 resolved_at이 안 채워진다.
+	// 감사 로그에서 읽어야만 나오는 값이라 회귀가 쉽게 난다.
+	if h.OldestApprovedAt.IsZero() {
+		t.Error("OldestApprovedAt이 비었다 — 감사 로그에서 못 읽고 있다")
+	}
+	if h.TodayClaims != 3 {
+		t.Errorf("TodayClaims = %d, want 3", h.TodayClaims)
+	}
+	// 방금 만든 건들은 아직 하루가 안 됐다.
+	if h.StaleOnHold != 0 {
+		t.Errorf("StaleOnHold = %d, want 0", h.StaleOnHold)
+	}
+}
+
+func TestHomeSummaryFor_다른_매장은_섞이지_않는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	mine, m := fixture(t, s)
+	theirs, theirMachine := fixture(t, s)
+
+	if _, err := s.CreateClaim(ctx, claimInput(mine, m.ID, "mine-1")); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		if _, err := s.CreateClaim(ctx, claimInput(theirs, theirMachine.ID, fmt.Sprintf("theirs-%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h, err := s.HomeSummaryFor(ctx, mine, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Pending != 1 {
+		t.Errorf("Pending = %d, want 1 — 남의 매장 건이 섞였다", h.Pending)
+	}
+
+	alerts, err := s.MachineAlertsFor(ctx, mine, 3, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alerts) != 0 {
+		t.Errorf("기계 알림 = %+v — 남의 매장 기계가 올라왔다", alerts)
+	}
+}
+
+func TestMachineAlertsFor_임계치_이상만_돌려준다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, fmt.Sprintf("alert-%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, err := s.MachineAlertsFor(ctx, storeID, 4, time.Now()); err != nil || len(got) != 0 {
+		t.Fatalf("임계치 4에서 %v (err=%v)", got, err)
+	}
+	got, err := s.MachineAlertsFor(ctx, storeID, 3, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Count != 3 || got[0].Label != "3번 기계" {
+		t.Fatalf("알림 = %+v", got)
+	}
+}
