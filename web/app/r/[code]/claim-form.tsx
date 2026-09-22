@@ -18,6 +18,7 @@ import { shrinkImage } from "@/lib/image";
 import { krw } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
+import { PreviewImage } from "@/components/ui/preview-image";
 
 type Machine = {
   code: string;
@@ -281,9 +282,8 @@ export function ClaimForm({
               <ul className="grid grid-cols-3 gap-2">
                 {photos.map((p, i) => (
                   <li key={`${p.name}-${i}`} className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={URL.createObjectURL(p)}
+                    <PreviewImage
+                      file={p}
                       alt={`첨부한 사진 ${i + 1}`}
                       className="aspect-square w-full rounded-lg border border-[var(--line)] object-cover"
                     />

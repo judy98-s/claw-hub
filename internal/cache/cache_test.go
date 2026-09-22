@@ -49,13 +49,16 @@ func TestMemory_Incr_TTL은_첫_증가때만_설정된다(t *testing.T) {
 	ctx := context.Background()
 	c := NewMemory()
 
+	// 여유를 넉넉히 둔다. TTL 과 경과 시간의 차가 몇십 ms 밖에 안 되면,
+	// 빌드 머신이 바쁠 때 스케줄러 지터만으로 실패한다. 실제로 그렇게
+	// 한 번 빨갛게 떴다. 깜빡이는 테스트는 없는 테스트보다 나쁘다.
 	for i := 0; i < 3; i++ {
-		if _, err := c.Incr(ctx, "k", 60*time.Millisecond); err != nil {
+		if _, err := c.Incr(ctx, "k", 50*time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
-	// 총 75ms 경과. 첫 증가 기준 TTL 60ms 는 이미 지났어야 한다.
+	// 총 150ms 경과. 첫 증가 기준 TTL 50ms 는 한참 전에 지났다.
 	got, err := c.Incr(ctx, "k", time.Hour)
 	if err != nil {
 		t.Fatal(err)

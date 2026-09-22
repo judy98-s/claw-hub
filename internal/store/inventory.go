@@ -157,7 +157,12 @@ type InventoryRow struct {
 	// AvgUnitCostKRW는 수량 가중 평균 원가다. 단순 평균이 아니다 —
 	// 2,000원 10개와 3,000원 90개의 평균은 2,500이 아니라 2,900이다.
 	AvgUnitCostKRW int `json:"avgUnitCostKrw"`
-	// ValueKRW는 재고 자산이다. 현재 수량 × 평균 원가.
+	// ValueKRW는 재고 자산이다.
+	//
+	// 화면에 보이는 평균 원가(반올림된 값)를 곱하지 않는다. 그렇게 하면
+	// 아무것도 안 팔린 상태에서도 "이번 달 인형값"과 "재고 자산"이 몇십 원
+	// 어긋나고, 사장님은 둘 중 뭐가 틀렸는지 알 수 없다. 총 지출에서
+	// 남은 비율만큼 떼는 방식이라, 안 팔렸으면 지출과 정확히 같다.
 	ValueKRW int `json:"valueKrw"`
 
 	LastVendor      string    `json:"lastVendor"`
@@ -186,19 +191,35 @@ const inventorySelect = `
 	   WHERE p.store_id = $1
 	   ORDER BY p.name_key, p.purchased_at DESC, p.created_at DESC
 	),
-	adj AS (
-	  SELECT name_key, SUM(delta) AS delta
+	-- 가장 최근 실사 한 건. 그 이전의 실사는 이미 덮였으므로 보지 않는다.
+	counted AS (
+	  SELECT DISTINCT ON (name_key) name_key, counted_qty, created_at
 	    FROM inventory_adjustments
 	   WHERE store_id = $1
-	   GROUP BY name_key
+	   ORDER BY name_key, created_at DESC, id DESC
+	),
+	-- 그 실사 이후에 들어온 입고. 세어본 뒤에 산 것은 당연히 더해져야 한다.
+	since AS (
+	  SELECT p.name_key, SUM(p.qty) AS qty
+	    FROM purchases p JOIN counted c ON c.name_key = p.name_key
+	   WHERE p.store_id = $1 AND p.created_at > c.created_at
+	   GROUP BY p.name_key
 	)
 	SELECT agg.name_key, last.name,
-	       agg.qty_bought + COALESCE(adj.delta, 0) AS qty_on_hand,
+	       -- 실사가 있으면 "세어본 수 + 그 뒤 입고", 없으면 산 수량 전부.
+	       --
+	       -- 차이(delta)를 누적하지 않는 이유: 그러면 실사를 기록할 때마다
+	       -- 먼저 현재 수량을 읽어야 하고, 두 사람이 동시에 세면 두 번째
+	       -- 사람의 차이가 틀린 기준에서 계산된다. 마지막 실사값을 기준으로
+	       -- 삼으면 쓰기가 읽기에 의존하지 않아 그 경합이 아예 없다.
+	       CASE WHEN counted.name_key IS NULL THEN agg.qty_bought
+	            ELSE counted.counted_qty + COALESCE(since.qty, 0) END AS qty_on_hand,
 	       agg.qty_bought, agg.spent, agg.purchase_count, agg.last_at,
 	       last.vendor, last.unit_price_krw, last.qty, last.shipping_krw
 	  FROM agg
 	  JOIN last ON last.name_key = agg.name_key
-	  LEFT JOIN adj ON adj.name_key = agg.name_key`
+	  LEFT JOIN counted ON counted.name_key = agg.name_key
+	  LEFT JOIN since ON since.name_key = agg.name_key`
 
 // InventoryFor는 매장의 재고 목록을 반환한다.
 //
@@ -246,10 +267,14 @@ func scanInventory(rows pgx.Rows) ([]InventoryRow, error) {
 		}
 		if r.QtyBought > 0 {
 			// 수량 가중 평균. 총 지출을 총 수량으로 나누면 자연히 가중된다.
-			r.AvgUnitCostKRW = int((spent + int64(r.QtyBought)/2) / int64(r.QtyBought))
-		}
-		if r.QtyOnHand > 0 {
-			r.ValueKRW = r.QtyOnHand * r.AvgUnitCostKRW
+			bought := int64(r.QtyBought)
+			r.AvgUnitCostKRW = int((spent + bought/2) / bought)
+			if r.QtyOnHand > 0 {
+				// 반올림된 평균을 곱하지 않고 비율로 뗀다. 곱하면
+				// 안 팔린 상태에서도 지출과 자산이 어긋난다.
+				onHand := int64(r.QtyOnHand)
+				r.ValueKRW = int((spent*onHand + bought/2) / bought)
+			}
 		}
 		r.LastUnitCostKRW = domain.UnitCostKRW(lastUnit, lastQty, lastShipping)
 		out = append(out, r)
@@ -259,8 +284,15 @@ func scanInventory(rows pgx.Rows) ([]InventoryRow, error) {
 
 // AdjustInventory는 실사 결과를 기록한다.
 //
-// 수량을 덮어쓰지 않고 차이(delta)를 쌓는다. 덮어쓰면 "언제 몇 개가
-// 어디로 갔는지"가 사라지고, 장부에서 그건 없는 것만 못하다.
+// 세어본 수량 자체가 기준이 된다. 현재 수량은 "마지막 실사값 + 그 뒤 입고"로
+// 계산되므로, 이 쓰기는 직전에 읽은 값에 의존하지 않는다. 두 사람이 동시에
+// 같은 품목을 세어도 나중 기록이 그대로 진실이 된다.
+//
+// delta 는 화면에 "장부보다 18개 적었다"를 보여주기 위한 기록일 뿐이다.
+// 경합에서 이 값이 조금 낡아도 현재 수량은 틀어지지 않는다.
+//
+// 행을 지우거나 고치지 않고 쌓기만 한다. 덮어쓰면 "언제 몇 개가 어디로
+// 갔는지"가 사라지고, 장부에서 그건 없는 것만 못하다.
 func (s *Store) AdjustInventory(ctx context.Context, storeID, userID, nameKey string, countedQty int, note string) error {
 	cur, err := s.InventoryItem(ctx, storeID, nameKey)
 	if err != nil {

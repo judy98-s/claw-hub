@@ -38,7 +38,9 @@ const machineAlertThreshold = 3
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	u := authUser(r.Context())
-	now := s.now()
+	// 매장 시계로 넘긴다. UTC 자정은 한국 시간 오전 9시라, 그냥 넘기면
+	// 새벽에 들어온 접수가 "오늘"에서 빠진다.
+	now := s.nowKST()
 
 	sum, err := s.store.HomeSummaryFor(r.Context(), u.StoreID, now)
 	if err != nil {

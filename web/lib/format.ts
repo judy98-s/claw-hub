@@ -1,3 +1,13 @@
+/**
+ * 매장 시각.
+ *
+ * 이 앱은 한국 매장이 쓴다. 화면에 뜨는 "9월 1일"은 언제나 한국 시간
+ * 9월 1일이어야 하고, 보는 사람의 기기 시간대에 따라 하루가 밀리면 안 된다.
+ * 서버는 UTC로 돌고 사입일은 한국 자정으로 저장되므로, 시간대를 명시하지
+ * 않으면 한국의 9월 1일이 화면에 8월 31일로 나온다 — 실제로 그랬다.
+ */
+const KST = "Asia/Seoul";
+
 /** 금액을 "2,000원" 으로 만든다. */
 export function krw(n: number): string {
   return `${n.toLocaleString("ko-KR")}원`;
@@ -21,7 +31,8 @@ export function phone(raw: string): string {
   }
 
   // 1588 같은 대표번호는 8자리 4-4
-  if (d.length === 8 && /^1[5-9]/.test(d)) return `${d.slice(0, 4)}-${d.slice(4)}`;
+  if (d.length === 8 && /^1[5-9]/.test(d))
+    return `${d.slice(0, 4)}-${d.slice(4)}`;
 
   if (d.length === 11) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
@@ -43,7 +54,11 @@ export function ago(iso: string, now: Date = new Date()): string {
   if (sec < 86400) return `${Math.floor(sec / 3600)}시간 전`;
   if (sec < 86400 * 7) return `${Math.floor(sec / 86400)}일 전`;
 
-  return then.toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
+  return then.toLocaleDateString("ko-KR", {
+    month: "long",
+    day: "numeric",
+    timeZone: KST,
+  });
 }
 
 /** 날짜·시각을 "9월 21일 14:32" 로 만든다. */
@@ -53,5 +68,32 @@ export function dateTime(iso: string): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: KST,
+  });
+}
+
+/**
+ * 날짜를 "9/14" 로 만든다. 표 안에서는 짧을수록 읽힌다.
+ *
+ * toLocaleDateString 의 결과("9. 1.")를 정규식으로 다듬지 않고 부품을
+ * 꺼내 쓴다. 문자열을 깎는 방식은 로캘 표기가 바뀌면 조용히 틀린 값을 낸다.
+ */
+const shortDateParts = new Intl.DateTimeFormat("ko-KR", {
+  month: "numeric",
+  day: "numeric",
+  timeZone: KST,
+});
+
+export function shortDate(iso: string): string {
+  const parts = shortDateParts.formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("month")}/${get("day")}`;
+}
+
+/** "9월". 요약 제목에 쓴다. */
+export function monthLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString("ko-KR", {
+    month: "long",
+    timeZone: KST,
   });
 }

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/judy98-s/claw-hub/internal/domain"
 	"github.com/judy98-s/claw-hub/internal/store"
@@ -367,4 +368,103 @@ func TestPurchase_영수증은_보존기간_없이_저장된다(t *testing.T) {
 	}
 	// 영수증은 claim_photos 가 아니므로 만료 대상 목록에 아예 없다.
 	// 여기서는 첨부 자체가 성공했는지만 본다.
+}
+
+// ── QA에서 잡은 회귀 ────────────────────────────────────────────────────
+
+func TestPurchase_재시도에는_지난번_단가를_붙이지_않는다(t *testing.T) {
+	// 재시도에는 아무것도 기록되지 않았다. 그런데 "지난번보다 싸게
+	// 샀습니다"가 뜨면, 그 사이에 들어간 다른 건과 견준 결과가 사실인 양
+	// 나간다. QA에서 실제로 그 문장이 떴다.
+	h := newHarness(t)
+	c := h.login(t)
+
+	first := defaultPurchase()
+	first.unitPrice, first.shipping = "2300", "3000"
+	h.postPurchase(t, first, "retry-1", c)
+
+	// 그 사이에 같은 인형을 다른 단가로 한 건 더 넣는다.
+	mid := defaultPurchase()
+	mid.unitPrice, mid.shipping, mid.purchasedAt = "2500", "0", "2026-09-20"
+	h.postPurchase(t, mid, "retry-2", c)
+
+	// 첫 건을 같은 멱등키로 재시도.
+	rec := h.postPurchase(t, first, "retry-1", c)
+	var res createPurchaseResponse
+	json.Unmarshal(rec.Body.Bytes(), &res) //nolint:errcheck
+
+	if !res.Existing {
+		t.Fatal("existing=false — 새로 등록됐다")
+	}
+	if res.PreviousUnitCostKrw != 0 {
+		t.Errorf("PreviousUnitCostKrw = %d, want 0 — 기록되지 않은 건에 비교를 붙였다",
+			res.PreviousUnitCostKrw)
+	}
+}
+
+func TestPurchase_숫자오류_메시지에_조사가_맞다(t *testing.T) {
+	// "수량을(를)" 같은 문장은 사람이 쓴 문장이 아니다. 받침에 따라
+	// 하나만 맞다.
+	h := newHarness(t)
+	c := h.login(t)
+
+	cases := map[string]string{
+		"qty":          "수량을 숫자로",
+		"unitPriceKrw": "단가를 숫자로",
+		"shippingKrw":  "배송비를 숫자로",
+	}
+	for field, want := range cases {
+		o := defaultPurchase()
+		switch field {
+		case "qty":
+			o.qty = "예순"
+		case "unitPriceKrw":
+			o.unitPrice = "이천삼백"
+		case "shippingKrw":
+			o.shipping = "삼천"
+		}
+		rec := h.postPurchase(t, o, "josa-"+field, c)
+		body := rec.Body.String()
+		if !strings.Contains(body, want) {
+			t.Errorf("%s → %s, want %q", field, body, want)
+		}
+		if strings.Contains(body, "을(를)") {
+			t.Errorf("%s 메시지에 괄호 조사가 남아 있다: %s", field, body)
+		}
+	}
+}
+
+func TestMonthRange_KST_자정을_경계로_삼는다(t *testing.T) {
+	// 서버는 UTC로 돈다. 경계를 UTC 자정으로 잡으면 한국의 9월 1일
+	// 사입(= UTC 8월 31일 15시)이 "9월 지출"에서 빠진다.
+	kstNow := time.Date(2026, 9, 22, 12, 0, 0, 0, kst)
+	from, to := monthRange(kstNow)
+
+	// 한국 시간 9월 1일 0시 = UTC 8월 31일 15시
+	wantFrom := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+	if !from.Equal(wantFrom) {
+		t.Errorf("from = %v, want %v (KST 9/1 0시)", from.UTC(), wantFrom)
+	}
+	if !to.Equal(time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)) {
+		t.Errorf("to = %v", to.UTC())
+	}
+
+	// 한국의 9월 1일 새벽에 산 물건이 이 범위 안에 들어와야 한다.
+	bought := time.Date(2026, 9, 1, 1, 0, 0, 0, kst)
+	if bought.Before(from) || !bought.Before(to) {
+		t.Errorf("KST 9/1 01시 사입이 9월 범위 밖이다")
+	}
+}
+
+func TestHome_오늘은_매장_시계로_센다(t *testing.T) {
+	// UTC 자정은 한국 시간 오전 9시다. 그냥 넘기면 새벽에 들어온 접수가
+	// "오늘"에서 빠진다.
+	h := newHarness(t)
+	c := h.login(t)
+	h.seedClaim(t, nil)
+
+	res := homeOf(t, h, c)
+	if res.TodayClaims != 1 {
+		t.Errorf("TodayClaims = %d, want 1", res.TodayClaims)
+	}
 }

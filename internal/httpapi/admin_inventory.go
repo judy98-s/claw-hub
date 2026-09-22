@@ -28,7 +28,7 @@ type inventoryResponse struct {
 
 func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
 	u := authUser(r.Context())
-	from, to := monthRange(s.now())
+	from, to := monthRange(s.nowKST())
 
 	sum, err := s.store.InventorySummaryFor(r.Context(), u.StoreID, from, to)
 	if err != nil {
@@ -45,7 +45,11 @@ func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// monthRange는 "이번 달"의 경계다. 매장이 쓰는 시계 기준이다.
+// monthRange는 "이번 달"의 경계다.
+//
+// 반드시 KST 로 받는다. 서버가 UTC로 돌기 때문에 그냥 time.Now() 를 넘기면
+// 경계가 UTC 자정이 되고, 사입일은 KST 자정으로 저장된다. 그러면 한국의
+// 9월 1일 사입(= UTC 8월 31일 15시)이 "9월 지출"에서 빠진다.
 func monthRange(now time.Time) (time.Time, time.Time) {
 	from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	return from, from.AddDate(0, 1, 0)
@@ -184,6 +188,12 @@ func (s *Server) handleCreatePurchase(w http.ResponseWriter, r *http.Request) {
 		s.cleanupPhotos(ctx, written)
 	}
 
+	if existing {
+		// 재시도에는 "지난번보다 비싸게 샀다"를 붙이지 않는다. 아무것도
+		// 기록되지 않았는데 비교를 띄우면, 그 사이에 들어간 다른 건과
+		// 견주게 되어 사실이 아닌 문장이 나온다.
+		prev = 0
+	}
 	res := createPurchaseResponse{Purchase: p, Existing: existing, PreviousUnitCostKrw: prev}
 	if item, err := s.store.InventoryItem(ctx, u.StoreID, p.NameKey); err == nil {
 		res.QtyOnHand = item.QtyOnHand
@@ -203,27 +213,29 @@ func (s *Server) parsePurchaseForm(w http.ResponseWriter, r *http.Request) (stor
 	in.Name = strings.TrimSpace(r.FormValue("name"))
 	in.Vendor = strings.TrimSpace(r.FormValue("vendor"))
 
-	num := func(field, label string) (int, bool) {
+	// 조사를 "을(를)"로 적지 않는다. 받침 유무에 따라 하나만 맞고,
+	// 괄호로 둘 다 적은 문장은 사람이 쓴 문장이 아니다.
+	num := func(field, message string) (int, bool) {
 		raw := strings.TrimSpace(r.FormValue(field))
 		if raw == "" {
 			return 0, true // 빈 값은 0. 도메인 검증이 0을 허용할지 정한다.
 		}
 		n, err := strconv.Atoi(raw)
 		if err != nil {
-			badRequest(w, label+"을(를) 숫자로 입력해주세요.")
+			badRequest(w, message)
 			return 0, false
 		}
 		return n, true
 	}
 
 	var ok bool
-	if in.UnitPriceKRW, ok = num("unitPriceKrw", "단가"); !ok {
+	if in.UnitPriceKRW, ok = num("unitPriceKrw", "단가를 숫자로 입력해주세요."); !ok {
 		return in, false
 	}
-	if in.Qty, ok = num("qty", "수량"); !ok {
+	if in.Qty, ok = num("qty", "수량을 숫자로 입력해주세요."); !ok {
 		return in, false
 	}
-	if in.ShippingKRW, ok = num("shippingKrw", "배송비"); !ok {
+	if in.ShippingKRW, ok = num("shippingKrw", "배송비를 숫자로 입력해주세요."); !ok {
 		return in, false
 	}
 

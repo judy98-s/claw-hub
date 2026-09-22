@@ -400,6 +400,13 @@ func (s *Server) parseAccountFields(w http.ResponseWriter, r *http.Request, f cl
 // "오후 3시"는 한국 시간 오후 3시다.
 var kst = time.FixedZone("KST", 9*60*60)
 
+// nowKST는 매장 시계로 본 현재 시각이다.
+//
+// "오늘", "이번 달" 같은 경계를 계산할 때는 반드시 이걸 쓴다. 서버는 UTC로
+// 도는데 UTC 자정은 한국 시간 오전 9시다. 그 차이를 무시하면 새벽 2시에
+// 들어온 접수가 "어제"로 집계된다.
+func (s *Server) nowKST() time.Time { return s.now().In(kst) }
+
 // collectPhotos는 첨부 사진을 검증한다. 문제가 있으면 손님용 메시지를 반환한다.
 //
 // 확장자와 클라이언트가 보낸 Content-Type은 보지 않는다. 파일 내용의

@@ -1540,3 +1540,145 @@ func TestInventorySummaryFor_기간지출과_현재자산(t *testing.T) {
 		t.Errorf("ItemCount=%d QtyOnHand=%d", sum.ItemCount, sum.QtyOnHand)
 	}
 }
+
+func TestInventory_안팔렸으면_재고자산이_지출과_정확히_같다(t *testing.T) {
+	// 반올림된 평균 원가를 수량에 곱하면, 아무것도 안 팔린 상태에서도
+	// "이번 달 인형값"과 "재고 자산"이 몇십 원 어긋난다. 사장님은 둘 중
+	// 뭐가 틀렸는지 알 수 없고, 그 순간 화면의 모든 숫자를 의심하게 된다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+
+	// 160개에 409,000원. 평균은 2556.25 — 딱 떨어지지 않는다.
+	specs := []struct{ unit, qty, ship int }{
+		{2300, 60, 3000}, {2500, 40, 0}, {2700, 30, 3000}, {2700, 30, 3000},
+	}
+	spent := 0
+	for i, sp := range specs {
+		in := purchaseInput(storeID, fmt.Sprintf("round-%d", i))
+		in.UnitPriceKRW, in.Qty, in.ShippingKRW = sp.unit, sp.qty, sp.ship
+		if _, _, err := s.CreatePurchase(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+		spent += sp.unit*sp.qty + sp.ship
+	}
+
+	item, err := s.InventoryItem(ctx, storeID, domain.NameKey("쿠로미 중형 30cm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ValueKRW != spent {
+		t.Errorf("ValueKRW = %d, 지출 = %d — 안 팔렸는데 어긋난다", item.ValueKRW, spent)
+	}
+	// 표시용 평균은 여전히 반올림된 값이다.
+	if item.AvgUnitCostKRW != 2556 {
+		t.Errorf("AvgUnitCostKRW = %d, want 2556", item.AvgUnitCostKRW)
+	}
+
+	// 절반이 팔리면 자산도 비율만큼 준다.
+	if err := s.AdjustInventory(ctx, storeID, "", item.NameKey, 80, ""); err != nil {
+		t.Fatal(err)
+	}
+	half, err := s.InventoryItem(ctx, storeID, item.NameKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if half.ValueKRW != spent/2 {
+		t.Errorf("절반 판매 후 ValueKRW = %d, want %d", half.ValueKRW, spent/2)
+	}
+}
+
+func TestAdjustInventory_실사_뒤에_들여온_건_더해진다(t *testing.T) {
+	// 세어본 다음에 산 물건은 당연히 재고에 더해져야 한다. 마지막 실사값을
+	// 기준으로 삼으면서 "그 뒤 입고"를 빠뜨리면, 실사를 한 번 한 뒤로
+	// 아무리 사들여도 재고가 안 늘어난다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+	key := domain.NameKey("쿠로미 중형 30cm")
+
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "after-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AdjustInventory(ctx, storeID, "", key, 10, "세어봄"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "after-2")); err != nil {
+		t.Fatal(err)
+	}
+
+	item, err := s.InventoryItem(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.QtyOnHand != 70 {
+		t.Errorf("QtyOnHand = %d, want 70 (실사 10 + 새로 들인 60)", item.QtyOnHand)
+	}
+}
+
+func TestAdjustInventory_나중_실사가_앞의_실사를_덮는다(t *testing.T) {
+	// 실사를 두 번 하면 나중 것이 진실이다. 차이를 누적하는 방식이면
+	// 두 번의 차이가 모두 반영되어 엉뚱한 수가 나온다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+	key := domain.NameKey("쿠로미 중형 30cm")
+
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "twice-1")); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{40, 25} {
+		if err := s.AdjustInventory(ctx, storeID, "", key, n, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	item, err := s.InventoryItem(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.QtyOnHand != 25 {
+		t.Errorf("QtyOnHand = %d, want 25 (마지막 실사값)", item.QtyOnHand)
+	}
+	// 이력은 둘 다 남아 있어야 한다.
+	hist, err := s.AdjustmentsFor(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 2 {
+		t.Errorf("실사 이력 %d건, want 2 — 기록이 덮였다", len(hist))
+	}
+}
+
+func TestAdjustInventory_동시에_세어도_수량이_틀어지지_않는다(t *testing.T) {
+	// 차이를 누적하던 방식에서는, 두 사람이 동시에 세면 둘 다 같은 기준에서
+	// 차이를 계산해 두 번 반영됐다. 마지막 실사값을 기준으로 삼으면 쓰기가
+	// 읽기에 의존하지 않아 그 경합이 아예 없다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, _ := fixture(t, s)
+	key := domain.NameKey("쿠로미 중형 30cm")
+
+	if _, _, err := s.CreatePurchase(ctx, purchaseInput(storeID, "race-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = s.AdjustInventory(ctx, storeID, "", key, 30, "")
+		}()
+	}
+	wg.Wait()
+
+	item, err := s.InventoryItem(ctx, storeID, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 둘 다 "30개"라고 셌으면 결과는 30이다. 차이 누적 방식이면 0이 됐다.
+	if item.QtyOnHand != 30 {
+		t.Errorf("QtyOnHand = %d, want 30 — 동시 실사가 두 번 반영됐다", item.QtyOnHand)
+	}
+}

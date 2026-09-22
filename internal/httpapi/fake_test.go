@@ -32,7 +32,8 @@ type fakeStore struct {
 	purchaseStore map[string]string         // id -> storeID
 	purchaseByKey map[string]string         // storeID|idemKey -> id
 	purchaseOrder []string                  // 등록 순서
-	adjustDelta   map[string]int            // storeID|nameKey -> 누적 delta
+	lastCount     map[string]countedAt      // storeID|nameKey -> 마지막 실사
+	boughtSince   map[string]int            // storeID|nameKey -> 실사 뒤 입고
 	adjustments   map[string][]store.Adjustment
 
 	facts domain.RiskInput
@@ -54,7 +55,8 @@ func newFakeStore() *fakeStore {
 		purchases:     map[string]store.Purchase{},
 		purchaseStore: map[string]string{},
 		purchaseByKey: map[string]string{},
-		adjustDelta:   map[string]int{},
+		lastCount:     map[string]countedAt{},
+		boughtSince:   map[string]int{},
 		adjustments:   map[string][]store.Adjustment{},
 		info:          store.StoreInfo{Name: "테스트 매장", Phone: "0212345678"},
 		facts:         domain.RiskInput{PhoneClaims30d: 1, AccountDistinctPhones: 1, ManualStatus: domain.ContactNormal},
@@ -63,6 +65,9 @@ func newFakeStore() *fakeStore {
 		storeDetail:   store.StoreDetail{ID: "store-1", Name: "테스트 매장", Phone: "0212345678"},
 	}
 }
+
+// countedAt은 fake 가 기억하는 마지막 실사다.
+type countedAt struct{ qty int }
 
 // owner는 기본 로그인 계정이다.
 var owner = store.User{
@@ -562,6 +567,10 @@ func (f *fakeStore) CreatePurchase(_ context.Context, in store.CreatePurchaseInp
 	}
 	f.purchases[p.ID] = p
 	f.purchaseStore[p.ID] = in.StoreID
+	// 실사 뒤에 들어온 입고는 따로 센다. 세어본 다음에 산 것은 더해져야 한다.
+	if _, counted := f.lastCount[in.StoreID+"|"+p.NameKey]; counted {
+		f.boughtSince[in.StoreID+"|"+p.NameKey] += p.QtyTotal
+	}
 	f.purchaseByKey[key] = p.ID
 	f.purchaseOrder = append(f.purchaseOrder, p.ID)
 	return p, false, nil
@@ -619,12 +628,18 @@ func (f *fakeStore) inventoryRows(storeID string) []store.InventoryRow {
 	out := []store.InventoryRow{}
 	for _, k := range order {
 		r := byKey[k]
-		r.QtyOnHand = r.QtyBought + f.adjustDelta[storeID+"|"+k]
+		// 진짜 저장소와 같은 모델: 마지막 실사값 + 그 뒤 입고.
+		if c, counted := f.lastCount[storeID+"|"+k]; counted {
+			r.QtyOnHand = c.qty + f.boughtSince[storeID+"|"+k]
+		} else {
+			r.QtyOnHand = r.QtyBought
+		}
 		if r.QtyBought > 0 {
 			r.AvgUnitCostKRW = (spent[k] + r.QtyBought/2) / r.QtyBought
-		}
-		if r.QtyOnHand > 0 {
-			r.ValueKRW = r.QtyOnHand * r.AvgUnitCostKRW
+			if r.QtyOnHand > 0 {
+				// 진짜 저장소와 같은 식. 반올림된 평균을 곱하지 않는다.
+				r.ValueKRW = (spent[k]*r.QtyOnHand + r.QtyBought/2) / r.QtyBought
+			}
 		}
 		out = append(out, *r)
 	}
@@ -677,7 +692,9 @@ func (f *fakeStore) AdjustInventory(ctx context.Context, storeID, userID, nameKe
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delta := countedQty - cur.QtyOnHand
-	f.adjustDelta[storeID+"|"+nameKey] += delta
+	k := storeID + "|" + nameKey
+	f.lastCount[k] = countedAt{qty: countedQty}
+	f.boughtSince[k] = 0
 	f.adjustments[storeID+"|"+nameKey] = append(
 		[]store.Adjustment{{Delta: delta, CountedQty: countedQty, Note: note, At: time.Now()}},
 		f.adjustments[storeID+"|"+nameKey]...)
