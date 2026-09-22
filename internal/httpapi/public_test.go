@@ -61,22 +61,26 @@ func newHarness(t *testing.T, opts ...func(*Deps)) *harness {
 
 // claimForm은 접수 요청 multipart 본문을 만든다.
 type formOpts struct {
-	machineCode string
-	issueType   string
-	amount      string
-	phone       string
-	bankCode    string
-	account     string
-	holder      string
-	description string
-	photos      [][]byte
-	photoNames  []string
-	omit        map[string]bool
+	machineCode   string
+	issueType     string
+	paymentMethod string
+	cardLast4     string
+	paidAtGuess   string
+	amount        string
+	phone         string
+	bankCode      string
+	account       string
+	holder        string
+	description   string
+	photos        [][]byte
+	photoNames    []string
+	omit          map[string]bool
 }
 
 func defaultForm() formOpts {
 	return formOpts{
-		machineCode: "ABCD23", issueType: "cash_eaten", amount: "2000",
+		machineCode: "ABCD23", issueType: "cash_eaten",
+		paymentMethod: "cash", amount: "2000",
 		phone: "010-1234-5678", bankCode: "090", account: "3333-01-1234567",
 		holder: "김민수", description: "천원 두 번 넣었는데 안 나옴",
 	}
@@ -94,6 +98,9 @@ func buildForm(o formOpts) (string, *bytes.Buffer) {
 	}
 	set("machineCode", o.machineCode)
 	set("issueType", o.issueType)
+	set("paymentMethod", o.paymentMethod)
+	set("cardLast4", o.cardLast4)
+	set("paidAtGuess", o.paidAtGuess)
 	set("amountKrw", o.amount)
 	set("phone", o.phone)
 	set("bankCode", o.bankCode)
@@ -417,6 +424,22 @@ func TestCreateClaim_필드_검증(t *testing.T) {
 		{"예금주 없음", func(f *formOpts) { f.holder = "" }},
 		{"예금주 너무 김", func(f *formOpts) { f.holder = strings.Repeat("가", 41) }},
 		{"설명 너무 김", func(f *formOpts) { f.description = strings.Repeat("가", 1001) }},
+		{"결제 수단 없음", func(f *formOpts) { f.paymentMethod = "" }},
+		{"알 수 없는 결제 수단", func(f *formOpts) { f.paymentMethod = "point" }},
+		{"카드인데 뒷자리 없음", func(f *formOpts) { f.paymentMethod = "card" }},
+		{"카드 뒷자리 자릿수 오류", func(f *formOpts) {
+			f.paymentMethod = "card"
+			f.cardLast4 = "123"
+		}},
+		{"카드 뒷자리가 숫자가 아님", func(f *formOpts) {
+			f.paymentMethod = "card"
+			f.cardLast4 = "12a4"
+		}},
+		{"카드 결제 시각 형식 오류", func(f *formOpts) {
+			f.paymentMethod = "card"
+			f.cardLast4 = "1234"
+			f.paidAtGuess = "어제 저녁"
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -15,19 +15,23 @@ import (
 // ClaimSummary는 접수함 목록 한 줄이다.
 // 개인정보는 마스킹된 형태로만 나간다 — 목록에 계좌번호 전부를 띄울 이유가 없다.
 type ClaimSummary struct {
-	ID           string              `json:"id"`
-	MachineLabel string              `json:"machineLabel"`
-	MachineID    string              `json:"machineId"`
-	IssueType    domain.IssueType    `json:"issueType"`
-	IssueLabel   string              `json:"issueLabel"`
-	AmountKRW    int                 `json:"amountKrw"`
-	Status       domain.Status       `json:"status"`
-	StatusLabel  string              `json:"statusLabel"`
-	RiskScore    int                 `json:"riskScore"`
-	RiskReasons  []domain.RiskReason `json:"riskReasons"`
-	PhoneMasked  string              `json:"phoneMasked"`
-	PhotoCount   int                 `json:"photoCount"`
-	CreatedAt    time.Time           `json:"createdAt"`
+	ID           string           `json:"id"`
+	MachineLabel string           `json:"machineLabel"`
+	MachineID    string           `json:"machineId"`
+	IssueType    domain.IssueType `json:"issueType"`
+	IssueLabel   string           `json:"issueLabel"`
+	// PaymentMethod는 이 건을 송금으로 끝낼지 카드 취소로 끝낼지를 가른다.
+	// 목록에서 바로 보여야 사장님이 단말기를 켤지 말지 안다.
+	PaymentMethod domain.PaymentMethod `json:"paymentMethod"`
+	PaymentLabel  string               `json:"paymentLabel"`
+	AmountKRW     int                  `json:"amountKrw"`
+	Status        domain.Status        `json:"status"`
+	StatusLabel   string               `json:"statusLabel"`
+	RiskScore     int                  `json:"riskScore"`
+	RiskReasons   []domain.RiskReason  `json:"riskReasons"`
+	PhoneMasked   string               `json:"phoneMasked"`
+	PhotoCount    int                  `json:"photoCount"`
+	CreatedAt     time.Time            `json:"createdAt"`
 }
 
 // ClaimFilter는 접수함 조회 조건이다.
@@ -89,7 +93,7 @@ func (s *Store) ListClaims(ctx context.Context, f ClaimFilter) ([]ClaimSummary, 
 	// limit+1을 읽어서 다음 페이지 존재 여부를 판단한다.
 	args = append(args, limit+1)
 	q := fmt.Sprintf(`
-		SELECT c.id, m.label, c.machine_id, c.issue_type, c.amount_krw,
+		SELECT c.id, m.label, c.machine_id, c.issue_type, c.payment_method, c.amount_krw,
 		       c.status, c.risk_score, c.risk_reasons, c.phone_enc, c.created_at,
 		       (SELECT COUNT(*) FROM claim_photos p WHERE p.claim_id = c.id)
 		  FROM claims c JOIN machines m ON m.id = c.machine_id
@@ -106,14 +110,16 @@ func (s *Store) ListClaims(ctx context.Context, f ClaimFilter) ([]ClaimSummary, 
 	out := make([]ClaimSummary, 0, limit)
 	for rows.Next() {
 		var c ClaimSummary
-		var issueType, status string
+		var issueType, paymentMethod, status string
 		var reasons, phoneEnc []byte
-		if err := rows.Scan(&c.ID, &c.MachineLabel, &c.MachineID, &issueType, &c.AmountKRW,
+		if err := rows.Scan(&c.ID, &c.MachineLabel, &c.MachineID, &issueType, &paymentMethod, &c.AmountKRW,
 			&status, &c.RiskScore, &reasons, &phoneEnc, &c.CreatedAt, &c.PhotoCount); err != nil {
 			return nil, "", err
 		}
 		c.IssueType = domain.IssueType(issueType)
 		c.IssueLabel = c.IssueType.Label()
+		c.PaymentMethod = domain.PaymentMethod(paymentMethod)
+		c.PaymentLabel = c.PaymentMethod.Label()
 		c.Status = domain.Status(status)
 		c.StatusLabel = c.Status.Label()
 		if err := json.Unmarshal(reasons, &c.RiskReasons); err != nil {
@@ -182,7 +188,13 @@ func (s *Store) RiskFactsFor(ctx context.Context, q RiskQuery) (domain.RiskInput
 	accountHash := s.hasher.Hash(q.Account)
 	since := q.Now.Add(-window30d)
 
-	in := domain.RiskInput{Now: q.Now, ManualStatus: domain.ContactNormal}
+	in := domain.RiskInput{
+		Now:          q.Now,
+		ManualStatus: domain.ContactNormal,
+		// 카드 건은 계좌를 받지 않는다. 빈 계좌끼리는 "같은 계좌"가 아니므로
+		// 계좌 공유 규칙에서 제외되어야 한다.
+		HasAccount: q.Account != "",
+	}
 
 	var prior int
 	if err := s.pool.QueryRow(ctx, `

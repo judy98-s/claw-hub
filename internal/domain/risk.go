@@ -28,12 +28,14 @@ type RiskReason struct {
 // RiskInput은 평가에 필요한 사실들이다. 저장 계층이 채워서 넘긴다.
 type RiskInput struct {
 	AmountKRW             int
-	PhoneClaims30d        int       // 이 번호의 30일 내 신고 건수 (이번 건 포함)
-	PhonePaidTotal30d     int       // 이 번호에 30일간 실제 지급된 금액
-	AccountDistinctPhones int       // 이 계좌에 연결된 서로 다른 전화번호 수
-	ManualStatus          string    // ContactNormal | ContactWatch | ContactBlocked
-	LastSameMachineAt     time.Time // 같은 번호 + 같은 기계의 직전 신고 시각
-	Now                   time.Time
+	PhoneClaims30d        int // 이 번호의 30일 내 신고 건수 (이번 건 포함)
+	PhonePaidTotal30d     int // 이 번호에 30일간 실제 지급된 금액
+	AccountDistinctPhones int // 이 계좌에 연결된 서로 다른 전화번호 수
+	// HasAccount가 false면 계좌 기반 규칙을 건너뛴다. 카드 결제 건이다.
+	HasAccount        bool
+	ManualStatus      string    // ContactNormal | ContactWatch | ContactBlocked
+	LastSameMachineAt time.Time // 같은 번호 + 같은 기계의 직전 신고 시각
+	Now               time.Time
 }
 
 // RiskResult는 평가 결과다.
@@ -120,6 +122,12 @@ func ruleRepeat(in RiskInput, p Policy) (RiskReason, Status, int, bool) {
 }
 
 func ruleAccountSharing(in RiskInput, p Policy) (RiskReason, Status, int, bool) {
+	// 카드 결제 건은 계좌를 받지 않는다. 계좌가 없는 건끼리는 서로 "같은
+	// 계좌"가 아니므로, 이 규칙을 적용하면 카드 신고 전부가 한 계좌를
+	// 공유하는 것처럼 보여 모조리 검토 대상이 된다.
+	if !in.HasAccount {
+		return RiskReason{}, "", 0, false
+	}
 	if in.AccountDistinctPhones < p.AccountSharingPhones {
 		return RiskReason{}, "", 0, false
 	}

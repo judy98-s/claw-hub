@@ -23,6 +23,9 @@ type ClaimNotice struct {
 	URL          string
 	MachineLabel string
 	IssueLabel   string
+	// PaymentLabel은 "현금" 또는 "카드"다. 사장님이 알림만 보고 단말기를
+	// 켤지 송금 앱을 켤지 판단할 수 있어야 한다.
+	PaymentLabel string
 	AmountKRW    int
 	Status       domain.Status
 	RiskReasons  []domain.RiskReason

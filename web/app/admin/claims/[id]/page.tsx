@@ -18,6 +18,10 @@ type ClaimDetail = {
   machineLabel: string;
   machineCode: string;
   issueLabel: string;
+  paymentMethod: string;
+  paymentLabel: string;
+  cardLast4: string;
+  paidAtGuess: string | null;
   amountKrw: number;
   description: string;
   status: string;
@@ -47,7 +51,11 @@ type ClaimDetail = {
   allowedTransitions: string[];
 };
 
-export default function ClaimDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default function ClaimDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   return (
     <Suspense fallback={<DetailSkeleton />}>
       <ClaimDetail params={params} />
@@ -130,7 +138,10 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
     return (
       <main className="mx-auto max-w-lg px-4 pt-6">
         {error ? (
-          <p role="alert" className="rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]">
+          <p
+            role="alert"
+            className="rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+          >
             {error}
           </p>
         ) : (
@@ -167,13 +178,23 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
             {krw(claim.amountKrw)}
           </span>
         </div>
-        <div>
+        <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={toneForStatus(claim.status)}>{claim.statusLabel}</Badge>
+          {/*
+            현금인지 카드인지가 처리 방법을 통째로 가른다. 상태 옆에 붙여
+            사장님이 스크롤하기 전에 알게 한다.
+          */}
+          {claim.paymentMethod === "card" && (
+            <Badge tone="accent">카드 결제 · 취소 처리</Badge>
+          )}
         </div>
       </header>
 
       {error && (
-        <p role="alert" className="mb-4 rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]">
+        <p
+          role="alert"
+          className="mb-4 rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+        >
           {error}
         </p>
       )}
@@ -191,7 +212,11 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
                 (token ? `?t=${encodeURIComponent(token)}` : "");
               return (
                 <li key={pid}>
-                  <button type="button" onClick={() => setZoom(src)} className="block w-full">
+                  <button
+                    type="button"
+                    onClick={() => setZoom(src)}
+                    className="block w-full"
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={src}
@@ -207,7 +232,9 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
 
         {claim.description && (
           <div className="surface p-3.5">
-            <p className="mb-1 text-xs font-semibold text-[var(--muted)]">손님 설명</p>
+            <p className="mb-1 text-xs font-semibold text-[var(--muted)]">
+              손님 설명
+            </p>
             <p className="whitespace-pre-wrap text-sm">{claim.description}</p>
           </div>
         )}
@@ -221,7 +248,7 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
             {claim.approvedBy && <Row label="승인" value={claim.approvedBy} />}
             {claim.paidBy && (
               <Row
-                label="송금"
+                label={claim.paymentMethod === "card" ? "카드 취소" : "송금"}
                 value={
                   claim.paidAmountKrw && claim.paidAmountKrw !== claim.amountKrw
                     ? `${claim.paidBy} · ${krw(claim.paidAmountKrw)}`
@@ -229,21 +256,46 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
                 }
               />
             )}
-            {claim.paidAmountKrw > 0 && claim.paidAmountKrw !== claim.amountKrw && (
-              <p className="text-sm text-[var(--muted)]">
-                손님 요청은 {krw(claim.amountKrw)}였습니다.
-              </p>
-            )}
+            {claim.paidAmountKrw > 0 &&
+              claim.paidAmountKrw !== claim.amountKrw && (
+                <p className="text-sm text-[var(--muted)]">
+                  손님 요청은 {krw(claim.amountKrw)}였습니다.
+                </p>
+              )}
           </div>
         )}
 
         {/* 연락처와 이력 */}
         <div className="surface grid gap-3 p-3.5">
           <Row label="연락처" value={fmtPhone(claim.phone)} />
-          <Row label="환불 계좌" value={`${claim.bankName} ${claim.accountNo}`} />
-          <Row label="예금주" value={claim.holder} />
+          {/*
+            카드 건에는 계좌가 없다. 빈 칸을 "환불 계좌"라는 이름으로
+            띄우면 사장님은 손님이 안 적은 줄 알고 전화를 건다.
+          */}
+          {claim.paymentMethod === "card" ? (
+            <>
+              <Row label="결제" value={`카드 끝 ${claim.cardLast4}`} />
+              {claim.paidAtGuess && (
+                <Row
+                  label="결제 시각 (손님 기억)"
+                  value={dateTime(claim.paidAtGuess)}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <Row
+                label="환불 계좌"
+                value={`${claim.bankName} ${claim.accountNo}`}
+              />
+              <Row label="예금주" value={claim.holder} />
+            </>
+          )}
           <hr className="border-[var(--line)]" />
-          <Row label="이 번호의 30일 신고" value={`${claim.phoneClaims30d}건`} />
+          <Row
+            label="이 번호의 30일 신고"
+            value={`${claim.phoneClaims30d}건`}
+          />
           <Row label="30일 누적 환불" value={krw(claim.phonePaidTotal30d)} />
         </div>
 
@@ -251,30 +303,44 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
           고액 건은 통화가 주요 동작이다. 사진 몇 장보다 한 통의 전화가
           확실하고, 사장님이 번호를 손으로 옮겨 적지 않게 한다.
         */}
-        {claim.callRecommended && claim.status !== "paid" && claim.status !== "rejected" && (
-          <a
-            href={`tel:${claim.phone}`}
-            className="flex h-14 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
-          >
-            <PhoneCall size={20} weight="fill" />
-            {fmtPhone(claim.phone)} 로 전화하기
-          </a>
-        )}
+        {claim.callRecommended &&
+          claim.status !== "paid" &&
+          claim.status !== "rejected" && (
+            <a
+              href={`tel:${claim.phone}`}
+              className="flex h-14 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
+            >
+              <PhoneCall size={20} weight="fill" />
+              {fmtPhone(claim.phone)} 로 전화하기
+            </a>
+          )}
 
         {/* 처리 버튼 */}
         <div className="grid gap-2">
           {can("approved") && (
-            <Button size="lg" full loading={busy} onClick={() => void act("approve")}>
+            <Button
+              size="lg"
+              full
+              loading={busy}
+              onClick={() => void act("approve")}
+            >
               승인
             </Button>
           )}
           {claim.status === "approved" && (
             <Button size="lg" full onClick={() => setPayoutOpen(true)}>
-              환불 보내기
+              {claim.paymentMethod === "card"
+                ? "카드 결제 취소하기"
+                : "환불 보내기"}
             </Button>
           )}
           {can("on_hold") && (
-            <Button variant="secondary" full loading={busy} onClick={() => void act("hold", "사장님 보류")}>
+            <Button
+              variant="secondary"
+              full
+              loading={busy}
+              onClick={() => void act("hold", "사장님 보류")}
+            >
               나중에 보기 (보류)
             </Button>
           )}
@@ -320,8 +386,16 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
           aria-label="사진 닫기"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom} alt="첨부 사진 확대" className="max-h-full max-w-full object-contain" />
-          <X size={24} weight="bold" className="absolute right-4 top-4 text-white" />
+          <img
+            src={zoom}
+            alt="첨부 사진 확대"
+            className="max-h-full max-w-full object-contain"
+          />
+          <X
+            size={24}
+            weight="bold"
+            className="absolute right-4 top-4 text-white"
+          />
         </button>
       )}
     </main>
@@ -357,7 +431,9 @@ function Timeline({ events }: { events: ClaimDetail["events"] }) {
   if (events.length === 0) return null;
   return (
     <details className="surface p-3.5">
-      <summary className="cursor-pointer text-sm font-semibold">처리 기록</summary>
+      <summary className="cursor-pointer text-sm font-semibold">
+        처리 기록
+      </summary>
       <ul className="mt-3 grid gap-2">
         {events.map((e, i) => (
           <li key={i} className="grid gap-0.5 text-sm">
@@ -398,7 +474,13 @@ function ConfirmSheet({
           <p className="text-sm text-[var(--muted)]">{body}</p>
         </div>
         <div className="grid gap-2">
-          <Button variant="danger" size="lg" full loading={busy} onClick={onConfirm}>
+          <Button
+            variant="danger"
+            size="lg"
+            full
+            loading={busy}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </Button>
           <Button variant="ghost" full onClick={onCancel}>

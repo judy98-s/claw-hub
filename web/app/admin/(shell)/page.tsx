@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Image as ImageIcon, ShieldWarning } from "@phosphor-icons/react";
+import {
+  CreditCard,
+  Image as ImageIcon,
+  ShieldWarning,
+} from "@phosphor-icons/react";
 
 import { ApiError, get } from "@/lib/api";
 import { ago, krw } from "@/lib/format";
@@ -14,6 +18,7 @@ type ClaimSummary = {
   id: string;
   machineLabel: string;
   issueLabel: string;
+  paymentMethod: string;
   amountKrw: number;
   status: string;
   statusLabel: string;
@@ -64,7 +69,9 @@ export default function InboxPage() {
           router.replace("/admin/login");
           return;
         }
-        setError(err instanceof ApiError ? err.message : "목록을 불러오지 못했습니다.");
+        setError(
+          err instanceof ApiError ? err.message : "목록을 불러오지 못했습니다.",
+        );
       } finally {
         setLoading(false);
       }
@@ -107,7 +114,10 @@ export default function InboxPage() {
       </div>
 
       {error && (
-        <p role="alert" className="rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]">
+        <p
+          role="alert"
+          className="rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+        >
           {error}
         </p>
       )}
@@ -126,7 +136,10 @@ export default function InboxPage() {
         <ul className="grid gap-2">
           {claims.map((c) => (
             <li key={c.id}>
-              <Link href={`/admin/claims/${c.id}`} className="surface block p-3.5">
+              <Link
+                href={`/admin/claims/${c.id}`}
+                className="surface block p-3.5"
+              >
                 <div className="mb-1.5 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate font-semibold">
@@ -143,8 +156,20 @@ export default function InboxPage() {
 
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Badge tone={toneForStatus(c.status)}>{c.statusLabel}</Badge>
+                  {/* 카드 건은 송금이 아니라 단말기 취소다. 목록에서 갈린다. */}
+                  {c.paymentMethod === "card" && (
+                    <Badge
+                      tone="accent"
+                      icon={<CreditCard size={12} weight="regular" />}
+                    >
+                      카드
+                    </Badge>
+                  )}
                   {c.riskReasons.length > 0 && (
-                    <Badge tone="warn" icon={<ShieldWarning size={12} weight="fill" />}>
+                    <Badge
+                      tone="warn"
+                      icon={<ShieldWarning size={12} weight="fill" />}
+                    >
                       확인 {c.riskReasons.length}건
                     </Badge>
                   )}

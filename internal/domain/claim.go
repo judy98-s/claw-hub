@@ -128,11 +128,55 @@ func NewEvent(claimID string, by Actor, action string, from, to Status, note str
 	return Event{ClaimID: claimID, Actor: by, Action: action, From: from, To: to, Note: note, At: time.Now()}
 }
 
-// PayoutMethod는 환불이 어떤 경로로 나갔는지다.
+// PaymentMethod는 손님이 무엇으로 결제했는지다.
+//
+// 처리 방법이 완전히 다르다. 현금은 계좌로 송금하고, 카드는 단말기에서
+// 승인을 취소한다. 그래서 접수 단계에서 갈라야 하고, 카드 건에는 계좌번호를
+// 받지 않는다 — 받을 이유가 없다.
+type PaymentMethod string
+
 const (
-	PayoutDeeplink = "deeplink" // 토스·카카오뱅크 앱으로 보냄
-	PayoutManual   = "manual"   // 사장님이 다른 방법으로 보내고 수동 기록
+	PaymentCash    PaymentMethod = "cash"
+	PaymentCard    PaymentMethod = "card"
+	PaymentUnknown PaymentMethod = "unknown" // 이 구분이 생기기 전의 기존 건
 )
+
+func AllPaymentMethods() []PaymentMethod {
+	return []PaymentMethod{PaymentCash, PaymentCard}
+}
+
+var paymentLabels = map[PaymentMethod]string{
+	PaymentCash:    "현금",
+	PaymentCard:    "카드",
+	PaymentUnknown: "확인 안 됨",
+}
+
+func (p PaymentMethod) Label() string { return paymentLabels[p] }
+
+// NeedsAccount는 환불에 계좌 정보가 필요한지 알려준다.
+// 카드 결제는 단말기에서 취소하므로 계좌를 받지 않는다.
+func (p PaymentMethod) NeedsAccount() bool { return p != PaymentCard }
+
+func ParsePaymentMethod(s string) (PaymentMethod, error) {
+	for _, v := range AllPaymentMethods() {
+		if string(v) == s {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("결제 수단을 선택해주세요")
+}
+
+// PayoutMethod는 환불이 어떤 경로로 처리됐는지다.
+const (
+	PayoutDeeplink = "deeplink"  // 토스·카카오뱅크 앱으로 보냄
+	PayoutManual   = "manual"    // 사장님이 다른 방법으로 보내고 수동 기록
+	PayoutCardVoid = "card_void" // 카드 승인을 단말기에서 취소함
+)
+
+// AllPayoutMethods는 기록 가능한 처리 경로다.
+func AllPayoutMethods() []string {
+	return []string{PayoutDeeplink, PayoutManual, PayoutCardVoid}
+}
 
 // Claim은 신고 건 하나다.
 type Claim struct {
@@ -140,9 +184,14 @@ type Claim struct {
 	StoreID   string
 	MachineID string
 
-	IssueType   IssueType
-	AmountKRW   int
-	Description string
+	IssueType     IssueType
+	PaymentMethod PaymentMethod
+	AmountKRW     int
+	Description   string
+	// CardLast4는 카드 결제 건에서 거래를 찾기 위한 단서다.
+	CardLast4 string
+	// PaidAtGuess는 손님이 기억하는 대략의 결제 시각이다.
+	PaidAtGuess time.Time
 
 	Status    Status
 	RiskScore int

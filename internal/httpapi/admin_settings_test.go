@@ -499,3 +499,94 @@ func TestMarkPaid_0원_이하는_거부(t *testing.T) {
 		}
 	}
 }
+
+// ── 카드 결제 건 ────────────────────────────────────────────────────────
+
+// cardForm은 카드로 결제한 손님의 폼이다. 계좌 세 칸이 비어 있다.
+func cardForm(f *formOpts) {
+	f.paymentMethod = "card"
+	f.cardLast4 = "4821"
+	f.bankCode, f.account, f.holder = "", "", ""
+}
+
+func TestCard_계좌없이_접수된다(t *testing.T) {
+	// 카드 결제는 단말기에서 취소한다. 계좌를 요구하면, 받을 이유도 없는
+	// 정보를 받으면서 손님에게는 없는 장벽을 세우는 셈이다.
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, cardForm)
+
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+id, "", c)
+	var d claimDetailResponse
+	json.Unmarshal(rec.Body.Bytes(), &d) //nolint:errcheck
+
+	if d.PaymentMethod != domain.PaymentCard {
+		t.Fatalf("PaymentMethod = %q", d.PaymentMethod)
+	}
+	if d.PaymentLabel != "카드" {
+		t.Errorf("PaymentLabel = %q", d.PaymentLabel)
+	}
+	if d.CardLast4 != "4821" {
+		t.Errorf("CardLast4 = %q — 사장님이 단말기에서 거래를 찾을 단서다", d.CardLast4)
+	}
+	if d.AccountNo != "" {
+		t.Errorf("AccountNo = %q — 카드 건에는 계좌가 없어야 한다", d.AccountNo)
+	}
+}
+
+func TestCard_송금화면_대신_카드취소_안내가_온다(t *testing.T) {
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, cardForm)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	rec := h.do(http.MethodGet, "/api/admin/claims/"+id+"/payout-links", "", c)
+	var res payoutLinksResponse
+	json.Unmarshal(rec.Body.Bytes(), &res) //nolint:errcheck
+
+	if res.Mode != domain.PayoutCardVoid {
+		t.Fatalf("Mode = %q, want card_void", res.Mode)
+	}
+	if len(res.Links) != 0 {
+		t.Errorf("카드 건에 송금 딥링크가 있다: %+v — 보낼 계좌가 없다", res.Links)
+	}
+	if res.CardLast4 != "4821" {
+		t.Errorf("CardLast4 = %q", res.CardLast4)
+	}
+	if res.AccountNo != "" || res.CopyText != "" {
+		t.Errorf("계좌 복사가 노출됐다: %q / %q", res.AccountNo, res.CopyText)
+	}
+}
+
+func TestCard_송금으로_기록하려_하면_막힌다(t *testing.T) {
+	// 카드 건을 "계좌로 보냈다"로 기록하면 승인은 살아 있는데 장부에는
+	// 환불이 끝난 것으로 남는다. 그게 정확히 이중 환불이 나는 자리다.
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, cardForm)
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	for _, method := range []string{`{"method":"deeplink"}`, `{"method":"manual"}`} {
+		rec := h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid", method, c)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status = %d, want 400", method, rec.Code)
+		}
+	}
+
+	rec := h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid", `{"method":"card_void"}`, c)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("카드 취소 기록 status = %d, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestCash_카드취소로_기록하려_하면_막힌다(t *testing.T) {
+	h := newHarness(t)
+	c := h.login(t)
+	id := h.seedClaim(t, nil) // 기본 폼은 현금이다
+	h.do(http.MethodPost, "/api/admin/claims/"+id+"/approve", "{}", c)
+
+	rec := h.do(http.MethodPost, "/api/admin/claims/"+id+"/mark-paid", `{"method":"card_void"}`, c)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 — 현금 건은 취소할 카드 승인이 없다", rec.Code)
+	}
+}

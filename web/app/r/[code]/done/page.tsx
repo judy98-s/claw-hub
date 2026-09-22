@@ -12,10 +12,17 @@ export default async function DonePage({
   searchParams,
 }: {
   params: Promise<{ code: string }>;
-  searchParams: Promise<{ receipt?: string }>;
+  searchParams: Promise<{ receipt?: string; pay?: string }>;
 }) {
   const { code } = await params;
-  const { receipt } = await searchParams;
+  const { receipt, pay } = await searchParams;
+
+  /*
+    카드 건에 "계좌로 환불해드립니다"라고 쓰면 손님은 오지도 않을 입금을
+    기다리고, 하루 뒤에 매장으로 전화한다. 취소는 카드사를 거치므로
+    며칠 걸린다는 사실까지 여기서 말해야 그 전화가 오지 않는다.
+  */
+  const byCard = pay === "card";
 
   return (
     <main className="mx-auto grid min-h-[100dvh] max-w-md place-items-center px-4 py-10">
@@ -25,14 +32,18 @@ export default async function DonePage({
         <div className="grid gap-2">
           <h1 className="text-xl font-bold">접수되었습니다</h1>
           <p className="text-[var(--muted)]">
-            사장님이 확인한 뒤 입력하신 계좌로 환불해드립니다.
+            {byCard
+              ? "사장님이 확인한 뒤 카드 결제를 취소해드립니다. 카드사에 따라 2~5일 걸릴 수 있습니다."
+              : "사장님이 확인한 뒤 입력하신 계좌로 환불해드립니다."}
           </p>
         </div>
 
         {receipt && (
           <div className="surface grid gap-1 px-6 py-4">
             <span className="text-sm text-[var(--muted)]">접수번호</span>
-            <span className="font-mono text-2xl font-bold tracking-wider">{receipt}</span>
+            <span className="font-mono text-2xl font-bold tracking-wider">
+              {receipt}
+            </span>
           </div>
         )}
 

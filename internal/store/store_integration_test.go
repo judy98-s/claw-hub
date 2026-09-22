@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,11 +81,22 @@ func claimInput(storeID, machineID, key string) CreateClaimInput {
 	return CreateClaimInput{
 		StoreID: storeID, MachineID: machineID,
 		IssueType: domain.IssueCashEaten, AmountKRW: 2000,
-		Description: "천원 두 번 넣었는데 안 나옴",
-		Phone:       "01012345678", BankCode: "090", Account: "3333011234567", Holder: "김민수",
+		Description:   "천원 두 번 넣었는데 안 나옴",
+		PaymentMethod: domain.PaymentCash,
+		Phone:         "01012345678", BankCode: "090", Account: "3333011234567", Holder: "김민수",
 		Status: domain.StatusPending, IdempotencyKey: key,
 		IP: "1.2.3.4", UserAgent: "test",
 	}
+}
+
+// cardClaimInput은 카드로 결제한 손님의 신고다. 계좌 세 칸이 비어 있다.
+func cardClaimInput(storeID, machineID, key string) CreateClaimInput {
+	in := claimInput(storeID, machineID, key)
+	in.PaymentMethod = domain.PaymentCard
+	in.CardLast4 = "4821"
+	in.PaidAtGuess = time.Date(2026, 9, 21, 15, 4, 0, 0, time.UTC)
+	in.BankCode, in.Account, in.Holder = "", "", ""
+	return in
 }
 
 func TestMigrate_두번_실행해도_안전하다(t *testing.T) {
@@ -1051,5 +1063,71 @@ func TestPayoutSettings_왕복(t *testing.T) {
 	}
 	if leaked != 0 {
 		t.Error("출금 계좌가 평문으로 저장됐다")
+	}
+}
+
+// ── 카드 결제 건 ────────────────────────────────────────────────────────
+
+func TestCreateClaim_카드건은_계좌없이_저장되고_되읽힌다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	res, err := s.CreateClaim(ctx, cardClaimInput(storeID, m.ID, "card-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := s.ClaimByID(ctx, storeID, res.ID, domain.Actor{Kind: domain.ActorOwner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.PaymentMethod != domain.PaymentCard {
+		t.Errorf("PaymentMethod = %q", d.PaymentMethod)
+	}
+	if d.CardLast4 != "4821" {
+		t.Errorf("CardLast4 = %q — 단말기에서 거래를 찾을 단서다", d.CardLast4)
+	}
+	if !d.PaidAtGuess.Equal(time.Date(2026, 9, 21, 15, 4, 0, 0, time.UTC)) {
+		t.Errorf("PaidAtGuess = %v", d.PaidAtGuess)
+	}
+	if d.Account != "" {
+		t.Errorf("Account = %q — 카드 건에는 계좌가 없어야 한다", d.Account)
+	}
+}
+
+func TestRiskFactsFor_계좌없는_카드건은_계좌공유로_묶이지_않는다(t *testing.T) {
+	// 카드 건은 계좌가 빈 문자열이다. 그 해시가 서로 같다고 "같은 계좌를
+	// 공유한다"고 판정하면 카드 신고가 몇 건만 쌓여도 전부 검토 대상이 된다.
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	for i, phone := range []string{"01011112222", "01033334444"} {
+		in := cardClaimInput(storeID, m.ID, fmt.Sprintf("card-share-%d", i))
+		in.Phone = phone
+		if _, err := s.CreateClaim(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	facts, err := s.RiskFactsFor(ctx, RiskQuery{
+		StoreID: storeID, MachineID: m.ID,
+		Phone: "01055556666", Account: "", Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts.HasAccount {
+		t.Fatal("계좌가 없는데 HasAccount=true")
+	}
+
+	// 규칙이 실제로 안 걸리는지까지 본다. 집계 숫자만 보면 도메인이
+	// 그걸로 무엇을 하는지는 모른 채 지나간다.
+	facts.AmountKRW = 2000
+	for _, r := range domain.Evaluate(facts, domain.DefaultPolicy()).Reasons {
+		if strings.Contains(r.Message, "계좌") {
+			t.Errorf("계좌 공유 사유가 붙었다: %q", r.Message)
+		}
 	}
 }

@@ -105,6 +105,7 @@ func (f *fakeStore) CreateClaim(_ context.Context, in store.CreateClaimInput) (s
 		Claim: domain.Claim{
 			ID: id, StoreID: in.StoreID, MachineID: in.MachineID,
 			IssueType: in.IssueType, AmountKRW: in.AmountKRW, Description: in.Description,
+			PaymentMethod: in.PaymentMethod, CardLast4: in.CardLast4, PaidAtGuess: in.PaidAtGuess,
 			Status: in.Status, RiskScore: in.RiskScore, CreatedAt: now,
 		},
 		MachineLabel: "3번 기계", MachineCode: "ABCD23",
@@ -133,6 +134,8 @@ func (f *fakeStore) RiskFactsFor(_ context.Context, q store.RiskQuery) (domain.R
 	}
 	out := f.facts
 	out.Now = q.Now
+	// 진짜 저장소와 같은 규칙이어야 한다. 카드 건은 계좌가 없다.
+	out.HasAccount = q.Account != ""
 	return out, nil
 }
 

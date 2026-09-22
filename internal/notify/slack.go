@@ -49,6 +49,9 @@ func section(md string) slackBlock {
 
 func (s *Slack) ClaimCreated(ctx context.Context, n ClaimNotice) error {
 	headline := fmt.Sprintf("*%s* · %s · *%s원*", n.MachineLabel, n.IssueLabel, comma(n.AmountKRW))
+	if n.PaymentLabel != "" {
+		headline += " · " + n.PaymentLabel + " 결제"
+	}
 
 	var body strings.Builder
 	// 보류 건은 사유가 먼저다. 사장님이 제목만 보고 승인을 누르면 안 된다.

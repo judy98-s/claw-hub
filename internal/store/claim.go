@@ -30,6 +30,12 @@ type CreateClaimInput struct {
 	AmountKRW   int
 	Description string
 
+	// PaymentMethod가 card면 계좌 세 칸(BankCode/Account/Holder)은 비어 있다.
+	// 카드 취소는 단말기에서 하므로 받을 이유가 없다.
+	PaymentMethod domain.PaymentMethod
+	CardLast4     string
+	PaidAtGuess   time.Time
+
 	Phone    string // 평문. 저장 직전에 암호화된다
 	BankCode string
 	Account  string
@@ -94,13 +100,15 @@ func (s *Store) CreateClaim(ctx context.Context, in CreateClaimInput) (CreateCla
 				INSERT INTO claims (
 					store_id, machine_id, issue_type, amount_krw, description,
 					phone_enc, phone_hash, bank_code, account_enc, account_hash, holder_enc,
-					status, risk_score, risk_reasons, idempotency_key, ip_hash, user_agent
-				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+					status, risk_score, risk_reasons, idempotency_key, ip_hash, user_agent,
+					payment_method, card_last4, paid_at_guess
+				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 				ON CONFLICT (store_id, idempotency_key) DO NOTHING
 				RETURNING id, status, created_at`,
 				in.StoreID, in.MachineID, string(in.IssueType), in.AmountKRW, in.Description,
 				phone.enc, phone.hash, in.BankCode, account.enc, account.hash, holderEnc,
-				string(in.Status), in.RiskScore, reasons, in.IdempotencyKey, ipHash, in.UserAgent)
+				string(in.Status), in.RiskScore, reasons, in.IdempotencyKey, ipHash, in.UserAgent,
+				string(in.PaymentMethod), in.CardLast4, nilTime(in.PaidAtGuess))
 
 			var status string
 			if err := row.Scan(&res.ID, &status, &res.CreatedAt); err != nil {
@@ -216,14 +224,16 @@ func (s *Store) ClaimByID(ctx context.Context, storeID, id string, by domain.Act
 	var reasons []byte
 	var phoneEnc, accountEnc, holderEnc []byte
 	var phoneHash []byte
-	var resolvedAt, paidAt *time.Time
+	var resolvedAt, paidAt, paidAtGuess *time.Time
 	var paidAmount *int
+	var paymentMethod string
 
 	err := s.pool.QueryRow(ctx, `
 		SELECT c.id, c.store_id, c.machine_id, c.issue_type, c.amount_krw, c.description,
 		       c.status, c.risk_score, c.risk_reasons,
 		       c.phone_enc, c.phone_hash, c.bank_code, c.account_enc, c.holder_enc,
 		       c.created_at, c.resolved_at, c.paid_at, c.payout_method, c.paid_amount_krw,
+		       c.payment_method, c.card_last4, c.paid_at_guess,
 		       m.label, m.code
 		  FROM claims c JOIN machines m ON m.id = c.machine_id
 		 WHERE c.id=$1 AND c.store_id=$2`, id, storeID,
@@ -231,6 +241,7 @@ func (s *Store) ClaimByID(ctx context.Context, storeID, id string, by domain.Act
 		&status, &d.RiskScore, &reasons,
 		&phoneEnc, &phoneHash, &d.BankCode, &accountEnc, &holderEnc,
 		&d.CreatedAt, &resolvedAt, &paidAt, &d.PayoutMethod, &paidAmount,
+		&paymentMethod, &d.CardLast4, &paidAtGuess,
 		&d.MachineLabel, &d.MachineCode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ClaimDetail{}, ErrNotFound
@@ -243,6 +254,8 @@ func (s *Store) ClaimByID(ctx context.Context, storeID, id string, by domain.Act
 	d.Status = domain.Status(status)
 	d.ResolvedAt = deref(resolvedAt)
 	d.PaidAt = deref(paidAt)
+	d.PaymentMethod = domain.PaymentMethod(paymentMethod)
+	d.PaidAtGuess = deref(paidAtGuess)
 	if err := json.Unmarshal(reasons, &d.RiskReasons); err != nil {
 		return ClaimDetail{}, fmt.Errorf("리스크 사유 파싱: %w", err)
 	}

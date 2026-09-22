@@ -15,6 +15,7 @@ func base() RiskInput {
 		PhoneClaims30d:        1,
 		PhonePaidTotal30d:     2000,
 		AccountDistinctPhones: 1,
+		HasAccount:            true,
 		ManualStatus:          ContactNormal,
 		Now:                   now,
 	}
@@ -299,6 +300,55 @@ func TestParseContactStatus(t *testing.T) {
 	for _, bad := range []string{"", "banned", "차단"} {
 		if _, err := ParseContactStatus(bad); err == nil {
 			t.Errorf("ParseContactStatus(%q) 가 통과됐다", bad)
+		}
+	}
+}
+
+func TestEvaluate_계좌없는_카드건은_계좌공유_규칙을_건너뛴다(t *testing.T) {
+	// 카드 결제 건은 계좌를 받지 않는다. 계좌가 없는 건끼리는 서로 "같은
+	// 계좌"가 아닌데, 빈 값의 해시가 전부 같아서 규칙을 그대로 적용하면
+	// 카드 신고 전부가 한 계좌를 공유하는 것처럼 보여 모조리 검토 대상이 된다.
+	r := eval(func(in *RiskInput) {
+		in.HasAccount = false
+		in.AccountDistinctPhones = 47 // 다른 카드 건이 아무리 많아도
+	})
+	if r.Status != StatusPending {
+		t.Errorf("Status = %s, want pending", r.Status)
+	}
+	if hasReason(r, ReasonAccountSharing) {
+		t.Error("계좌 없는 건에 계좌 공유 사유가 붙었다")
+	}
+}
+
+func TestEvaluate_계좌있는_건은_여전히_공유를_잡는다(t *testing.T) {
+	r := eval(func(in *RiskInput) {
+		in.HasAccount = true
+		in.AccountDistinctPhones = 3
+	})
+	if !hasReason(r, ReasonAccountSharing) {
+		t.Error("계좌 공유가 잡히지 않는다")
+	}
+}
+
+func TestPaymentMethod(t *testing.T) {
+	if !PaymentCash.NeedsAccount() {
+		t.Error("현금 결제인데 계좌가 필요 없다고 한다")
+	}
+	if PaymentCard.NeedsAccount() {
+		t.Error("카드 결제인데 계좌를 요구한다 — 취소는 단말기에서 한다")
+	}
+	for _, m := range AllPaymentMethods() {
+		if m.Label() == "" {
+			t.Errorf("%s 의 라벨이 비었다", m)
+		}
+		got, err := ParsePaymentMethod(string(m))
+		if err != nil || got != m {
+			t.Errorf("ParsePaymentMethod(%q) = %v, %v", m, got, err)
+		}
+	}
+	for _, bad := range []string{"", "unknown", "계좌이체", "CASH"} {
+		if _, err := ParsePaymentMethod(bad); err == nil {
+			t.Errorf("ParsePaymentMethod(%q) 가 통과됐다", bad)
 		}
 	}
 }

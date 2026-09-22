@@ -211,6 +211,7 @@ func (s *Server) handleCreateClaim(w http.ResponseWriter, r *http.Request) {
 	res, err := s.store.CreateClaim(ctx, store.CreateClaimInput{
 		StoreID: m.StoreID, MachineID: m.ID,
 		IssueType: in.issueType, AmountKRW: in.amountKRW, Description: in.description,
+		PaymentMethod: in.paymentMethod, CardLast4: in.cardLast4, PaidAtGuess: in.paidAtGuess,
 		Phone: in.phone, BankCode: in.bankCode, Account: in.account, Holder: in.holder,
 		Status: risk.Status, RiskScore: risk.Score, RiskReasons: risk.Reasons,
 		IdempotencyKey: idemKey, IP: clientIP(r), UserAgent: r.UserAgent(),
@@ -236,8 +237,19 @@ func (s *Server) handleCreateClaim(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, claimResponse{
 		ID: res.ID, ReceiptCode: receiptCode(res.ID),
-		Message: "접수되었습니다. 확인 후 입력하신 계좌로 환불해드립니다.",
+		Message: completionMessage(in.paymentMethod),
 	})
+}
+
+// completionMessage는 접수 완료 화면 문구다.
+//
+// 카드 건에 "계좌로 환불해드립니다"라고 쓰면 손님이 오지도 않을 입금을
+// 기다린다. 취소는 카드사를 거쳐 며칠이 걸리므로 그 사실을 미리 말한다.
+func completionMessage(m domain.PaymentMethod) string {
+	if m == domain.PaymentCard {
+		return "접수되었습니다. 확인 후 카드 결제를 취소해드립니다. 카드사에 따라 취소 금액이 반영되기까지 2~5일 걸릴 수 있습니다."
+	}
+	return "접수되었습니다. 확인 후 입력하신 계좌로 환불해드립니다."
 }
 
 // notifyClaimCreated는 사장님에게 알린다.
@@ -251,7 +263,8 @@ func (s *Server) notifyClaimCreated(ctx context.Context, res store.CreateClaimRe
 		URL:          s.claimLinkURL(storeID, res.ID),
 		MachineLabel: machineLabel,
 		IssueLabel:   in.issueType.Label(), AmountKRW: in.amountKRW,
-		Status: risk.Status, RiskReasons: risk.Reasons,
+		PaymentLabel: in.paymentMethod.Label(),
+		Status:       risk.Status, RiskReasons: risk.Reasons,
 		PhotoCount: photoCount, CreatedAt: res.CreatedAt,
 	})
 	if err != nil {
@@ -260,15 +273,22 @@ func (s *Server) notifyClaimCreated(ctx context.Context, res store.CreateClaimRe
 }
 
 // claimForm은 검증을 통과한 폼 입력이다.
+//
+// paymentMethod가 card면 bankCode/account/holder는 빈 문자열이다. 카드 취소는
+// 사장님이 단말기에서 하므로 계좌를 받을 이유가 없고, 받지 않으면 유출될
+// 것도 없다.
 type claimForm struct {
-	machineCode string
-	issueType   domain.IssueType
-	amountKRW   int
-	description string
-	phone       string
-	bankCode    string
-	account     string
-	holder      string
+	machineCode   string
+	issueType     domain.IssueType
+	paymentMethod domain.PaymentMethod
+	amountKRW     int
+	description   string
+	phone         string
+	bankCode      string
+	account       string
+	holder        string
+	cardLast4     string
+	paidAtGuess   time.Time
 }
 
 // parseClaimForm은 폼을 읽고 검증한다. 실패 시 응답을 직접 쓰고 false를 반환한다.
@@ -312,6 +332,49 @@ func (s *Server) parseClaimForm(w http.ResponseWriter, r *http.Request) (claimFo
 	}
 	f.phone = phone
 
+	method, err := domain.ParsePaymentMethod(r.FormValue("paymentMethod"))
+	if err != nil {
+		badRequest(w, err.Error())
+		return f, false
+	}
+	f.paymentMethod = method
+
+	if !method.NeedsAccount() {
+		return s.parseCardFields(w, r, f)
+	}
+	return s.parseAccountFields(w, r, f)
+}
+
+// parseCardFields는 카드 결제 건에서만 쓰는 칸을 읽는다.
+//
+// 카드 뒷자리 4자리는 사장님이 단말기 거래 내역에서 그 건을 찾는 단서다.
+// 전체 카드번호는 받지 않는다 — 취소에 필요하지 않고, 받는 순간 다루기
+// 훨씬 무거운 정보가 된다.
+func (s *Server) parseCardFields(w http.ResponseWriter, r *http.Request, f claimForm) (claimForm, bool) {
+	f.cardLast4 = strings.TrimSpace(r.FormValue("cardLast4"))
+	if len(f.cardLast4) != 4 || strings.TrimLeft(f.cardLast4, "0123456789") != "" {
+		badRequest(w, "카드 뒷자리 4자리를 숫자로 입력해주세요. 영수증이나 결제 문자에 있습니다.")
+		return f, false
+	}
+
+	// 결제 시각은 선택이다. 비어 있으면 접수 시각으로 찾으면 된다 —
+	// 기계 앞에서 바로 신고하는 게 보통이라 둘이 거의 같다. 필수로 만들면
+	// 기억나지 않는 손님이 아무 값이나 넣고, 그건 없는 것만 못하다.
+	if raw := strings.TrimSpace(r.FormValue("paidAtGuess")); raw != "" {
+		// <input type="datetime-local">은 타임존 없이 보낸다. 매장에서 쓰는
+		// 시계는 한국 시간이므로 KST로 읽는다.
+		t, err := time.ParseInLocation("2006-01-02T15:04", raw, kst)
+		if err != nil {
+			badRequest(w, "결제하신 시각을 다시 확인해주세요.")
+			return f, false
+		}
+		f.paidAtGuess = t
+	}
+	return f, true
+}
+
+// parseAccountFields는 현금 결제 건에서만 쓰는 계좌 칸을 읽는다.
+func (s *Server) parseAccountFields(w http.ResponseWriter, r *http.Request, f claimForm) (claimForm, bool) {
 	f.bankCode = strings.TrimSpace(r.FormValue("bankCode"))
 	if _, ok := payout.BankByCode(f.bankCode); !ok {
 		badRequest(w, "은행을 선택해주세요.")
@@ -332,6 +395,10 @@ func (s *Server) parseClaimForm(w http.ResponseWriter, r *http.Request) (claimFo
 
 	return f, true
 }
+
+// kst는 매장이 실제로 쓰는 시계다. 서버가 UTC로 돌아도 손님이 적는
+// "오후 3시"는 한국 시간 오후 3시다.
+var kst = time.FixedZone("KST", 9*60*60)
 
 // collectPhotos는 첨부 사진을 검증한다. 문제가 있으면 손님용 메시지를 반환한다.
 //

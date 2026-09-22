@@ -74,19 +74,25 @@ func (s *Server) handleListClaims(w http.ResponseWriter, r *http.Request) {
 // claimDetailResponse는 사장님 상세 화면이 받는 정보다.
 // 계좌와 전화번호가 평문으로 나가고, 이 조회는 감사 로그에 남는다.
 type claimDetailResponse struct {
-	ID           string              `json:"id"`
-	ReceiptCode  string              `json:"receiptCode"`
-	MachineID    string              `json:"machineId"`
-	MachineLabel string              `json:"machineLabel"`
-	MachineCode  string              `json:"machineCode"`
-	IssueType    domain.IssueType    `json:"issueType"`
-	IssueLabel   string              `json:"issueLabel"`
-	AmountKRW    int                 `json:"amountKrw"`
-	Description  string              `json:"description"`
-	Status       domain.Status       `json:"status"`
-	StatusLabel  string              `json:"statusLabel"`
-	RiskScore    int                 `json:"riskScore"`
-	RiskReasons  []domain.RiskReason `json:"riskReasons"`
+	ID           string           `json:"id"`
+	ReceiptCode  string           `json:"receiptCode"`
+	MachineID    string           `json:"machineId"`
+	MachineLabel string           `json:"machineLabel"`
+	MachineCode  string           `json:"machineCode"`
+	IssueType    domain.IssueType `json:"issueType"`
+	IssueLabel   string           `json:"issueLabel"`
+	AmountKRW    int              `json:"amountKrw"`
+	Description  string           `json:"description"`
+
+	// 이 건을 송금으로 끝낼지 카드 취소로 끝낼지. 화면의 주요 버튼이 갈린다.
+	PaymentMethod domain.PaymentMethod `json:"paymentMethod"`
+	PaymentLabel  string               `json:"paymentLabel"`
+	CardLast4     string               `json:"cardLast4"`
+	PaidAtGuess   *time.Time           `json:"paidAtGuess"`
+	Status        domain.Status        `json:"status"`
+	StatusLabel   string               `json:"statusLabel"`
+	RiskScore     int                  `json:"riskScore"`
+	RiskReasons   []domain.RiskReason  `json:"riskReasons"`
 
 	Phone     string `json:"phone"`
 	BankCode  string `json:"bankCode"`
@@ -176,6 +182,8 @@ func (s *Server) claimDetailResponse(d store.ClaimDetail) claimDetailResponse {
 		IssueType: d.IssueType, IssueLabel: d.IssueType.Label(),
 		AmountKRW: d.AmountKRW, Description: d.Description,
 		Status: d.Status, StatusLabel: d.Status.Label(),
+		PaymentMethod: d.PaymentMethod, PaymentLabel: d.PaymentMethod.Label(),
+		CardLast4: d.CardLast4, PaidAtGuess: nilTime(d.PaidAtGuess),
 		RiskScore: d.RiskScore, RiskReasons: d.RiskReasons,
 		Phone: d.Phone, BankCode: d.BankCode, BankName: bankName,
 		AccountNo: d.Account, Holder: d.Holder,
@@ -229,11 +237,24 @@ func (s *Server) handleMarkPaid(w http.ResponseWriter, r *http.Request) {
 	s.transition(w, r, domain.StatusPaid, func(c *domain.Claim, req transitionRequest) error {
 		// 어떤 경로로 보냈는지 반드시 기록한다. 나중에 "이 건 진짜 보냈나"를
 		// 확인할 때 근거가 되고, 지급대행 연동 후에는 대사 대상이 된다.
-		switch req.Method {
-		case domain.PayoutDeeplink, domain.PayoutManual:
+		//
+		// 결제 수단과 처리 경로가 어긋나면 안 된다. 카드 건을 "계좌로 보냈다"로
+		// 기록하면 실제로는 승인이 살아 있는데 장부에는 환불이 끝난 것으로
+		// 남는다 — 그게 정확히 이중 환불이 나는 자리다.
+		if c.PaymentMethod == domain.PaymentCard {
+			if req.Method != domain.PayoutCardVoid {
+				return errors.New("카드 결제 건은 단말기에서 승인을 취소한 뒤 기록해주세요")
+			}
 			c.PayoutMethod = req.Method
-		default:
-			return errors.New("송금 방법을 알려주세요 (deeplink 또는 manual)")
+		} else {
+			switch req.Method {
+			case domain.PayoutDeeplink, domain.PayoutManual:
+				c.PayoutMethod = req.Method
+			case domain.PayoutCardVoid:
+				return errors.New("현금 결제 건은 카드 취소로 처리할 수 없습니다")
+			default:
+				return errors.New("송금 방법을 알려주세요 (deeplink 또는 manual)")
+			}
 		}
 
 		// 부분 환불이 실제로 일어난다 — 3천원 요청인데 확인해보니 2천원만
@@ -308,7 +329,17 @@ func (s *Server) transition(w http.ResponseWriter, r *http.Request, to domain.St
 }
 
 // payoutLinksResponse는 송금 시트가 받는 정보다.
+//
+// Mode가 "card_void"면 보낼 계좌가 없다. 사장님이 단말기에서 승인을
+// 취소하는 건이고, 화면은 딥링크 대신 거래를 찾을 단서를 보여줘야 한다.
 type payoutLinksResponse struct {
+	Mode string `json:"mode"` // transfer | card_void
+
+	// 카드 취소 건에서만 채워진다.
+	CardLast4   string     `json:"cardLast4"`
+	PaidAtGuess *time.Time `json:"paidAtGuess"`
+	ReceiptCode string     `json:"receiptCode"`
+
 	Links []payout.Link `json:"links"`
 	// 딥링크가 없거나 PC에서 열었을 때를 위한 수동 경로. 항상 함께 준다.
 	BankName  string `json:"bankName"`
@@ -338,6 +369,20 @@ func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 카드 결제 건에는 보낼 계좌가 없다. 딥링크를 만들려고 하면 빈 계좌로
+	// 만들게 되고, 그건 사장님을 엉뚱한 화면으로 보내는 것이다.
+	if d.PaymentMethod == domain.PaymentCard {
+		writeJSON(w, http.StatusOK, payoutLinksResponse{
+			Mode:        domain.PayoutCardVoid,
+			CardLast4:   d.CardLast4,
+			PaidAtGuess: nilTime(d.PaidAtGuess),
+			ReceiptCode: receiptCode(d.ID),
+			Links:       []payout.Link{},
+			AmountKRW:   d.AmountKRW,
+		})
+		return
+	}
+
 	// 매장 설정이 우선이고, 없으면 환경변수 기본값으로 떨어진다.
 	// 사장님이 앱을 바꾸려고 서버 설정을 고칠 이유가 없어야 한다.
 	provider := s.payoutFor(r.Context(), a.storeID)
@@ -357,6 +402,7 @@ func (s *Server) handlePayoutLinks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := payoutLinksResponse{
+		Mode:  "transfer",
 		Links: links, BankName: bankName, AccountNo: d.Account,
 		Holder: d.Holder, AmountKRW: d.AmountKRW,
 		CopyText: bankName + " " + d.Account + " " + d.Holder,
