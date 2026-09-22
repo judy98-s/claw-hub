@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Bubblewrap 이 읽는 TWA 빌드 설정입니다.",
+    "host 와 packageId 를 실제 값으로 바꾼 뒤 `npx @bubblewrap/cli build` 를 실행하세요.",
+    "자세한 절차는 docs/ANDROID.md 에 있습니다."
+  ],
+  "packageId": "com.example.clawhub",
+  "host": "claw.example.com",
+  "name": "claw-hub 접수함",
+  "launcherName": "claw-hub",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#0f7167",
+  "themeColorDark": "#0f0e0d",
+  "navigationColor": "#faf9f7",
+  "navigationColorDark": "#0f0e0d",
+  "navigationDividerColor": "#e5e2dc",
+  "navigationDividerColorDark": "#2b2825",
+  "backgroundColor": "#faf9f7",
+  "enableNotifications": true,
+  "startUrl": "/admin",
+  "iconUrl": "https://claw.example.com/icons/icon-512.png",
+  "maskableIconUrl": "https://claw.example.com/icons/maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": { "path": "./android.keystore", "alias": "clawhub" },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    { "name": "접수함", "shortName": "접수함", "url": "/admin", "chosenIconUrl": "https://claw.example.com/icons/icon-192.png" },
+    { "name": "기계", "shortName": "기계", "url": "/admin/machines", "chosenIconUrl": "https://claw.example.com/icons/icon-192.png" }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://claw.example.com/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://claw.example.com/",
+  "minSdkVersion": 23,
+  "appVersion": "1.0.0"
+}

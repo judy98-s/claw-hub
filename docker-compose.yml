@@ -49,6 +49,11 @@ services:
     build:
       context: ./web
     restart: unless-stopped
+    # .env 를 통째로 넘기지 않는다. 웹 컨테이너는 암호화 키도 DB 비밀번호도
+    # 쓰지 않으므로, 필요한 두 개만 건넨다.
+    environment:
+      ANDROID_PACKAGE_NAME: ${ANDROID_PACKAGE_NAME:-}
+      ANDROID_SHA256_FINGERPRINTS: ${ANDROID_SHA256_FINGERPRINTS:-}
     depends_on: [api]
 
   postgres:

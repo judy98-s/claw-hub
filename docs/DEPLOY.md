@@ -2,11 +2,56 @@
 
 단일 VPS + Docker Compose 기준이다. 사양은 2 vCPU / 2GB RAM 이면 충분하다.
 
+## 어디에 올릴까
+
+| | 2026년 9월 기준 | 이 앱에 |
+|---|---|---|
+| **Oracle Cloud Always Free** | 2 OCPU / 12GB ARM. 2026년 6월에 4 OCPU/24GB 에서 반토막났지만 여전히 무료 | **권장.** 차고 넘친다 |
+| Render 무료 | **15분 유휴 후 잠들고 첫 요청에 ~1분** | **손님 폼에는 못 쓴다.** 기계 앞에서 1분 기다릴 손님은 없다 |
+| Fly.io 무료 | **2024년 10월에 없어졌다.** 지금은 짧은 체험만 | 해당 없음 |
+| Vultr / Hetzner | 월 5~7천원 | Oracle 인스턴스가 안 만들어질 때의 대안 |
+
+**Oracle 의 함정:** 무료 ARM 인스턴스는 지역별 용량이 자주 바닥나서
+`Out of host capacity` 로 생성이 실패한다. 며칠 걸리는 일이 흔하다. 하루 이틀
+시도해서 안 되면 유료 VPS 로 가는 편이 시간을 아낀다 — 월 6천원이다.
+
+
+
 부하 계산: 기계 500대에 대당 하루 1건 접수여도 **하루 500건 ≈ 초당 0.006 요청**이다.
 Postgres 단일 인스턴스 여력의 백만 분의 일이라 트래픽으로 아플 일은 구조적으로 없다.
 먼저 차는 것은 CPU 가 아니라 **사진 디스크**다.
 
 ---
+
+## 0. Oracle Cloud 인스턴스 만들기
+
+무료 계정을 만들면 카드 등록을 요구하지만 Always Free 자원에는 청구되지 않는다.
+
+1. **Compute → Instances → Create instance**
+2. **Image**: Ubuntu 24.04 (ARM 빌드 — Ampere 를 고르면 자동으로 맞춰진다)
+3. **Shape**: `VM.Standard.A1.Flex` → **2 OCPU / 12GB**
+4. SSH 공개키 등록 → 생성
+
+`Out of host capacity` 가 뜨면 다른 가용 도메인(AD-1/2/3)으로 바꿔 재시도한다.
+그래도 안 되면 몇 시간 뒤에 다시 해본다.
+
+생성되면 **방화벽을 두 군데** 열어야 한다. 하나만 열고 왜 안 되는지 찾는 일이 흔하다.
+
+```bash
+# ① 인스턴스 안쪽 (Ubuntu 기본 iptables 가 80/443 을 막고 있다)
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+② 콘솔의 **Networking → VCN → Security List** 에서도 80/443 인그레스 규칙을 추가한다.
+
+Docker 설치:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER && exec su -l $USER
+```
 
 ## 1. 준비
 
@@ -58,6 +103,12 @@ $EDITOR .env
 | `REDIS_URL` | compose 가 자동으로 채운다. 비우면 인메모리 |
 
 ## 3. 도메인 연결
+
+도메인은 어디서 사도 되지만 `.com` 은 연 1.5만원, `.shop` `.site` 같은 건 첫 해
+5천원 안쪽이다. **갱신가가 첫 해 가격보다 훨씬 비싼 경우가 많으니 갱신가를 보고
+고를 것.** 네임서버를 Cloudflare 로 옮기면 DNS 관리가 편하고 무료다.
+
+### 설정
 
 `SITE_ADDRESS` 에 도메인을 넣으면 Caddy 가 Let's Encrypt 인증서를 자동으로 받는다.
 
@@ -298,6 +349,18 @@ make tunnel                   # cloudflared 필요, 회원가입 불필요
 VPS 로 옮기고 고정 도메인을 써야 한다.
 
 ---
+
+## 안드로이드 앱
+
+사장님 대시보드를 Play 스토어 앱으로 만들려면 [docs/ANDROID.md](ANDROID.md) 를 본다.
+지금 웹을 그대로 띄우는 껍데기(TWA)라 코드베이스가 늘지 않는다.
+
+`.env` 에 두 줄이 더 필요하다. 자세한 건 위 문서에 있다.
+
+```
+ANDROID_PACKAGE_NAME=com.example.clawhub
+ANDROID_SHA256_FINGERPRINTS=내지문,구글지문
+```
 
 ## 알아둘 함정
 

@@ -75,7 +75,8 @@ make tunnel                   # 터미널 4 — cloudflared 필요
 나온 주소를 `.env` 의 `PUBLIC_BASE_URL` 에 넣고 `make api` 를 다시 띄우면
 QR 과 Slack 링크가 그 주소로 만들어진다.
 
-배포는 [docs/DEPLOY.md](docs/DEPLOY.md).
+배포는 [docs/DEPLOY.md](docs/DEPLOY.md), 안드로이드 앱은
+[docs/ANDROID.md](docs/ANDROID.md).
 
 ## 구조
 

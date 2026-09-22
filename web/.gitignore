@@ -6,3 +6,11 @@ next-env.d.ts
 
 # 빌드 시 node_modules 에서 생성된다 (scripts/setup-fonts.mjs)
 public/fonts/
+
+# 안드로이드 서명 키. 저장소에 들어가면 누구나 내 앱으로 위장한 업데이트를
+# 만들 수 있다. 잃어버리면 같은 앱을 다시 올릴 수 없으니 따로 백업할 것.
+*.keystore
+*.jks
+android/
+app-release-*.aab
+app-release-*.apk
