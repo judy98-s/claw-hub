@@ -304,29 +304,39 @@ function ListingRow({
             </span>
           )}
         </div>
-      ) : contact ? (
-        <div className="grid gap-1.5 rounded-lg bg-[var(--surface-sunken)] p-3">
-          <a
-            href={`tel:${contact.phone}`}
-            className="flex h-12 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
-          >
-            <Phone size={18} weight="fill" />
-            {fmtPhone(contact.phone)}
-          </a>
-          <p className="text-xs text-[var(--muted)]">
-            {contact.storeName} · 사업자 {contact.bizNo} · 오늘{" "}
-            {contact.remainingToday}번 더 볼 수 있습니다
-          </p>
-        </div>
       ) : (
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={onReveal} disabled={closed}>
-            <Phone size={16} weight="regular" /> 연락처 보기
-          </Button>
+        <div className="grid gap-2">
+          {contact ? (
+            <div className="grid gap-1.5 rounded-lg bg-[var(--surface-sunken)] p-3">
+              <a
+                href={`tel:${contact.phone}`}
+                className="flex h-12 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
+              >
+                <Phone size={18} weight="fill" />
+                {fmtPhone(contact.phone)}
+              </a>
+              <p className="text-xs text-[var(--muted)]">
+                {contact.storeName} · 사업자 {contact.bizNo} · 오늘{" "}
+                {contact.remainingToday}번 더 볼 수 있습니다
+              </p>
+            </div>
+          ) : (
+            <div>
+              <Button variant="secondary" onClick={onReveal} disabled={closed}>
+                <Phone size={16} weight="regular" /> 연락처 보기
+              </Button>
+            </div>
+          )}
+
+          {/*
+            신고는 연락처를 본 뒤에도 남아 있어야 한다. 오히려 그때가
+            신고할 일이 생기는 순간이다 — 전화해보니 말이 다르거나
+            아예 안 받는 경우.
+          */}
           <button
             type="button"
             onClick={onReport}
-            className="flex h-11 items-center gap-1 px-2 text-sm text-[var(--muted)] hover:text-[var(--tone-stop-fg)]"
+            className="flex h-9 w-fit items-center gap-1 text-sm text-[var(--muted)] hover:text-[var(--tone-stop-fg)]"
           >
             <Warning size={14} weight="regular" /> 신고
           </button>
