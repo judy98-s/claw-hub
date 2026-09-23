@@ -12,9 +12,20 @@ import (
 	"time"
 
 	"github.com/judy98-s/claw-hub/internal/domain"
+	"github.com/judy98-s/claw-hub/internal/store"
 )
 
 // login은 로그인해서 세션 쿠키를 얻는다.
+// loginAs는 지정한 계정의 세션 쿠키를 만든다.
+//
+// 장터는 매장 두 곳이 서로의 글을 봐야 검증된다. 로그인 경로를 그대로
+// 쓰면 fake 가 비밀번호까지 흉내 내야 하므로, 세션 코덱을 직접 쓴다.
+func (h *harness) loginAs(t *testing.T, u store.User) *http.Cookie {
+	t.Helper()
+	v := h.server.session.encode(u.ID, h.server.now().Add(24*time.Hour))
+	return &http.Cookie{Name: sessionCookie, Value: v}
+}
+
 func (h *harness) login(t *testing.T) *http.Cookie {
 	t.Helper()
 	body := `{"email":"owner@example.com","password":"secret123"}`

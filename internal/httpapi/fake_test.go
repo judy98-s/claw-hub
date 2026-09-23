@@ -28,12 +28,18 @@ type fakeStore struct {
 	byIdemKey map[string]string            // storeID|key -> claimID
 	nextID    int
 
-	purchases     map[string]store.Purchase // id -> purchase
-	purchaseStore map[string]string         // id -> storeID
-	purchaseByKey map[string]string         // storeID|idemKey -> id
-	purchaseOrder []string                  // 등록 순서
-	lastCount     map[string]countedAt      // storeID|nameKey -> 마지막 실사
-	boughtSince   map[string]int            // storeID|nameKey -> 실사 뒤 입고
+	purchases     map[string]store.Purchase    // id -> purchase
+	purchaseStore map[string]string            // id -> storeID
+	purchaseByKey map[string]string            // storeID|idemKey -> id
+	purchaseOrder []string                     // 등록 순서
+	stores        map[string]store.StoreDetail // 두 번째 매장부터
+	listings      map[string]store.Listing     // id -> 글
+	listingOwner  map[string]string            // id -> storeID
+	listingOrder  []string
+	contacts      map[string][]time.Time     // storeID -> 열람 시각
+	reports       map[string]map[string]bool // listingID -> 신고한 매장
+	lastCount     map[string]countedAt       // storeID|nameKey -> 마지막 실사
+	boughtSince   map[string]int             // storeID|nameKey -> 실사 뒤 입고
 	adjustments   map[string][]store.Adjustment
 
 	facts domain.RiskInput
@@ -55,6 +61,11 @@ func newFakeStore() *fakeStore {
 		purchases:     map[string]store.Purchase{},
 		purchaseStore: map[string]string{},
 		purchaseByKey: map[string]string{},
+		stores:        map[string]store.StoreDetail{},
+		listings:      map[string]store.Listing{},
+		listingOwner:  map[string]string{},
+		contacts:      map[string][]time.Time{},
+		reports:       map[string]map[string]bool{},
 		lastCount:     map[string]countedAt{},
 		boughtSince:   map[string]int{},
 		adjustments:   map[string][]store.Adjustment{},
@@ -341,21 +352,53 @@ func (f *fakeStore) SetUserActive(_ context.Context, storeID, userID string, act
 }
 
 func (f *fakeStore) StoreByID(_ context.Context, id string) (store.StoreDetail, error) {
-	if id != "store-1" {
-		return store.StoreDetail{}, store.ErrNotFound
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if id == "store-1" {
+		return f.storeDetail, nil
 	}
-	return f.storeDetail, nil
+	if d, ok := f.stores[id]; ok {
+		return d, nil
+	}
+	return store.StoreDetail{}, store.ErrNotFound
+}
+
+// addStore는 두 번째 매장과 그 매장 사장님 계정을 만든다.
+// 장터는 매장이 하나면 아무것도 검증되지 않는다.
+func (f *fakeStore) addStore(id, name, phone string) store.User {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stores[id] = store.StoreDetail{
+		ID: id, Name: name, Phone: phone,
+		RegionCode: "busan", RegionDetail: "해운대구", BizNo: "2208162517",
+	}
+	u := store.User{
+		ID: id + "-user", StoreID: id, Email: id + "@example.com",
+		Name: "사장님", Phone: "01099998888", Active: true,
+	}
+	f.users = append(f.users, u)
+	return u
 }
 
 func (f *fakeStore) UpdateStore(_ context.Context, id string, in store.StoreProfile) (store.StoreDetail, error) {
-	if id != "store-1" {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	apply := func(d store.StoreDetail) store.StoreDetail {
+		d.Name, d.Phone = in.Name, in.Phone
+		d.RegionCode, d.RegionDetail, d.BizNo = in.RegionCode, in.RegionDetail, in.BizNo
+		return d
+	}
+	if id == "store-1" {
+		f.storeDetail = apply(f.storeDetail)
+		return f.storeDetail, nil
+	}
+	d, ok := f.stores[id]
+	if !ok {
 		return store.StoreDetail{}, store.ErrNotFound
 	}
-	f.storeDetail.Name, f.storeDetail.Phone = in.Name, in.Phone
-	f.storeDetail.RegionCode = in.RegionCode
-	f.storeDetail.RegionDetail = in.RegionDetail
-	f.storeDetail.BizNo = in.BizNo
-	return f.storeDetail, nil
+	f.stores[id] = apply(d)
+	return f.stores[id], nil
 }
 
 func (f *fakeStore) UpdatePayoutSettings(_ context.Context, id string, in store.PayoutSettings) (store.StoreDetail, error) {
@@ -751,4 +794,163 @@ func (f *fakeStore) VendorSuggestions(_ context.Context, storeID string, limit i
 		}
 	}
 	return out, nil
+}
+
+// ── 장터 ──────────────────────────────────────────────────────────────
+
+func (f *fakeStore) CreateListing(_ context.Context, in store.CreateListingInput) (store.Listing, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	price := in.UnitPriceKRW
+	if !in.Kind.NeedsPrice() {
+		price = 0
+	}
+	f.nextID++
+	l := store.Listing{
+		ID:   fmt.Sprintf("listing-%08d", f.nextID),
+		Name: strings.TrimSpace(in.Name), NameKey: domain.NameKey(in.Name),
+		Kind: in.Kind, KindLabel: in.Kind.Label(),
+		Qty: in.Qty, UnitPriceKRW: price, Note: in.Note,
+		RegionCode: in.RegionCode, RegionDetail: in.RegionDetail,
+		Status: "open", CreatedAt: in.Now,
+		ExpiresAt: in.Now.AddDate(0, 0, domain.ListingDays),
+	}
+	if r, ok := domain.RegionByCode(in.RegionCode); ok {
+		l.RegionName = r.Name
+	}
+	if d, ok := f.stores[in.StoreID]; ok {
+		l.StoreName = d.Name
+	} else {
+		l.StoreName = f.storeDetail.Name
+	}
+	f.listings[l.ID] = l
+	f.listingOwner[l.ID] = in.StoreID
+	f.listingOrder = append(f.listingOrder, l.ID)
+
+	l.Mine = true
+	return l, nil
+}
+
+// viewOf는 보는 사람 기준으로 글 하나를 다듬는다. 진짜 저장소와 같은 규칙:
+// 남의 글에는 신고 수가 보이지 않는다.
+func (f *fakeStore) viewOf(id, viewerStoreID string) store.Listing {
+	l := f.listings[id]
+	l.Mine = f.listingOwner[id] == viewerStoreID && viewerStoreID != ""
+	if !l.Mine {
+		l.ReportCount = 0
+	}
+	return l
+}
+
+func (f *fakeStore) ListListings(_ context.Context, fl store.ListingFilter) ([]store.Listing, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := []store.Listing{}
+	for i := len(f.listingOrder) - 1; i >= 0; i-- {
+		id := f.listingOrder[i]
+		l := f.viewOf(id, fl.ViewerStoreID)
+
+		if fl.MineOnly {
+			if f.listingOwner[id] != fl.ViewerStoreID {
+				continue
+			}
+		} else {
+			if l.Status != "open" || !l.ExpiresAt.After(fl.Now) {
+				continue
+			}
+			if fl.RegionCode != "" && l.RegionCode != fl.RegionCode {
+				continue
+			}
+			if fl.Kind != "" && l.Kind != fl.Kind && l.Kind != domain.ListingBoth {
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ListingByID(_ context.Context, id, viewerStoreID string, now time.Time) (store.Listing, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if _, ok := f.listings[id]; !ok {
+		return store.Listing{}, store.ErrNotFound
+	}
+	l := f.viewOf(id, viewerStoreID)
+	if !l.Mine && (l.Status != "open" || !l.ExpiresAt.After(now)) {
+		return store.Listing{}, store.ErrNotFound
+	}
+	return l, nil
+}
+
+func (f *fakeStore) CloseListing(_ context.Context, id, storeID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	l, ok := f.listings[id]
+	if !ok || f.listingOwner[id] != storeID || l.Status != "open" {
+		return store.ErrNotFound
+	}
+	l.Status = "closed"
+	f.listings[id] = l
+	return nil
+}
+
+func (f *fakeStore) ContactFor(_ context.Context, listingID, viewerStoreID, _ string) (store.ListingContact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	owner, ok := f.listingOwner[listingID]
+	if !ok {
+		return store.ListingContact{}, store.ErrNotFound
+	}
+	d := f.storeDetail
+	if s2, ok := f.stores[owner]; ok {
+		d = s2
+	}
+	f.contacts[viewerStoreID] = append(f.contacts[viewerStoreID], time.Now())
+	return store.ListingContact{StoreName: d.Name, Phone: d.Phone, BizNo: d.BizNo}, nil
+}
+
+func (f *fakeStore) ContactsTodayFor(_ context.Context, storeID string, now time.Time) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	n := 0
+	for _, at := range f.contacts[storeID] {
+		if !at.Before(dayStart) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeStore) ReportListing(_ context.Context, listingID, reporterStoreID, _ string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	l, ok := f.listings[listingID]
+	if !ok {
+		return false, store.ErrNotFound
+	}
+	if f.reports[listingID] == nil {
+		f.reports[listingID] = map[string]bool{}
+	}
+	if f.reports[listingID][reporterStoreID] {
+		return false, nil // 한 매장 한 번
+	}
+	f.reports[listingID][reporterStoreID] = true
+	l.ReportCount++
+
+	removed := false
+	if l.ReportCount >= domain.ListingReportLimit && l.Status == "open" {
+		l.Status = "removed"
+		removed = true
+	}
+	f.listings[listingID] = l
+	return removed, nil
 }

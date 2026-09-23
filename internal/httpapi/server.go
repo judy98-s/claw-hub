@@ -64,6 +64,15 @@ type Store interface {
 	AdjustmentsFor(ctx context.Context, storeID, nameKey string) ([]store.Adjustment, error)
 	DollNameSuggestions(ctx context.Context, storeID, q string, limit int) ([]string, error)
 	VendorSuggestions(ctx context.Context, storeID string, limit int) ([]string, error)
+
+	// 장터
+	CreateListing(ctx context.Context, in store.CreateListingInput) (store.Listing, error)
+	ListListings(ctx context.Context, f store.ListingFilter) ([]store.Listing, error)
+	ListingByID(ctx context.Context, id, viewerStoreID string, now time.Time) (store.Listing, error)
+	CloseListing(ctx context.Context, id, storeID string) error
+	ContactFor(ctx context.Context, listingID, viewerStoreID, viewerUserID string) (store.ListingContact, error)
+	ContactsTodayFor(ctx context.Context, storeID string, now time.Time) (int, error)
+	ReportListing(ctx context.Context, listingID, reporterStoreID, reason string) (bool, error)
 }
 
 // Server는 의존성을 모아 라우터를 만든다.
@@ -175,6 +184,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/store", s.authed(s.handleGetStore))
 	mux.Handle("PATCH /api/admin/store", s.authed(s.handleUpdateStore))
 	mux.Handle("GET /api/admin/regions", s.authed(s.handleRegions))
+
+	mux.Handle("GET /api/admin/market", s.authed(s.handleListMarket))
+	mux.Handle("POST /api/admin/market", s.authed(s.handleCreateListing))
+	mux.Handle("GET /api/admin/market/mine", s.authed(s.handleMyListings))
+	mux.Handle("GET /api/admin/market/{id}", s.authed(s.handleMarketDetail))
+	mux.Handle("POST /api/admin/market/{id}/contact", s.authed(s.handleListingContact))
+	mux.Handle("POST /api/admin/market/{id}/close", s.authed(s.handleCloseListing))
+	mux.Handle("POST /api/admin/market/{id}/report", s.authed(s.handleReportListing))
 	mux.Handle("GET /api/admin/payout-settings", s.authed(s.handleGetPayoutSettings))
 	mux.Handle("PATCH /api/admin/payout-settings", s.authed(s.handleUpdatePayoutSettings))
 	mux.Handle("GET /api/admin/users", s.authed(s.handleListUsers))
