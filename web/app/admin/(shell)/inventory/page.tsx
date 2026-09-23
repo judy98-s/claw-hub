@@ -8,6 +8,7 @@ import { ApiError, get, post } from "@/lib/api";
 import { krw, monthLabel, shortDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { PurchaseSheet } from "./purchase-sheet";
+import { ListingSheet } from "../market/listing-sheet";
 
 type Item = {
   nameKey: string;
@@ -47,6 +48,8 @@ export default function InventoryPage() {
   const [error, setError] = useState("");
   const [sheet, setSheet] = useState(false);
   const [counting, setCounting] = useState<Item | null>(null);
+  // 재고에서 바로 내놓기. 품명·보유 수량·원가가 이미 있으니 한 번 탭이다.
+  const [listing, setListing] = useState<Item | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -120,9 +123,27 @@ export default function InventoryPage() {
         <CountSheet
           item={counting}
           onClose={() => setCounting(null)}
+          onSell={() => {
+            setListing(counting);
+            setCounting(null);
+          }}
           onSaved={() => {
             setCounting(null);
             void load();
+          }}
+        />
+      )}
+      {listing && (
+        <ListingSheet
+          from={{
+            name: listing.name,
+            qtyOnHand: listing.qtyOnHand,
+            avgUnitCostKrw: listing.avgUnitCostKrw,
+          }}
+          onClose={() => setListing(null)}
+          onPosted={() => {
+            setListing(null);
+            router.push("/admin/market");
           }}
         />
       )}
@@ -269,10 +290,12 @@ function CountSheet({
   item,
   onClose,
   onSaved,
+  onSell,
 }: {
   item: Item;
   onClose: () => void;
   onSaved: () => void;
+  onSell: () => void;
 }) {
   const [counted, setCounted] = useState(String(item.qtyOnHand));
   const [note, setNote] = useState("");

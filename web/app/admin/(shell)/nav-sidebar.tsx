@@ -10,6 +10,7 @@ import {
   House,
   List,
   Package,
+  Storefront,
   UsersThree,
   X,
 } from "@phosphor-icons/react";
@@ -20,6 +21,7 @@ const NAV = [
   { href: "/admin", label: "홈", Icon: House },
   { href: "/admin/claims", label: "접수함", Icon: ClipboardText },
   { href: "/admin/inventory", label: "재고", Icon: Package },
+  { href: "/admin/market", label: "장터", Icon: Storefront },
   { href: "/admin/machines", label: "기계", Icon: GameController },
   { href: "/admin/contacts", label: "연락처", Icon: UsersThree },
   { href: "/admin/settings", label: "설정", Icon: GearSix },
