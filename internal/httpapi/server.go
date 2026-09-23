@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/judy98-s/claw-hub/internal/bizverify"
 	"github.com/judy98-s/claw-hub/internal/cache"
 	"github.com/judy98-s/claw-hub/internal/config"
 	"github.com/judy98-s/claw-hub/internal/domain"
@@ -43,7 +44,7 @@ type Store interface {
 	CreateUser(ctx context.Context, storeID, email, password, name, phone string) (store.User, error)
 	SetUserActive(ctx context.Context, storeID, userID string, active bool) error
 	StoreByID(ctx context.Context, id string) (store.StoreDetail, error)
-	UpdateStore(ctx context.Context, id, name, phone string) (store.StoreDetail, error)
+	UpdateStore(ctx context.Context, id string, in store.StoreProfile) (store.StoreDetail, error)
 	UpdatePayoutSettings(ctx context.Context, id string, in store.PayoutSettings) (store.StoreDetail, error)
 
 	ListContacts(ctx context.Context, storeID string) ([]store.ContactSummary, error)
@@ -73,6 +74,7 @@ type Server struct {
 	media      media.Storage
 	notify     notify.Notifier
 	payout     payout.Payout
+	bizVerify  bizverify.Verifier
 	policy     domain.Policy
 	session    *sessionCodec
 	claimToken *claimTokenCodec
@@ -87,7 +89,9 @@ type Deps struct {
 	Media  media.Storage
 	Notify notify.Notifier
 	Payout payout.Payout
-	Now    func() time.Time // 테스트용. nil이면 time.Now
+	// BizVerify는 사업자등록번호 확인 경로다. nil이면 체크섬만 본다.
+	BizVerify bizverify.Verifier
+	Now       func() time.Time // 테스트용. nil이면 time.Now
 }
 
 func New(d Deps) *Server {
@@ -95,10 +99,14 @@ func New(d Deps) *Server {
 	if now == nil {
 		now = time.Now
 	}
+	verify := d.BizVerify
+	if verify == nil {
+		verify = bizverify.NewChecksum()
+	}
 	p := d.Config.Policy
 	return &Server{
 		cfg: d.Config, store: d.Store, cache: d.Cache, media: d.Media,
-		notify: d.Notify, payout: d.Payout,
+		notify: d.Notify, payout: d.Payout, bizVerify: verify,
 		policy: domain.Policy{
 			ReviewThresholdKRW:   p.ReviewThresholdKRW,
 			RepeatWatchCount:     p.RepeatWatchCount,
@@ -166,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/admin/me", s.authed(s.handleUpdateMe))
 	mux.Handle("GET /api/admin/store", s.authed(s.handleGetStore))
 	mux.Handle("PATCH /api/admin/store", s.authed(s.handleUpdateStore))
+	mux.Handle("GET /api/admin/regions", s.authed(s.handleRegions))
 	mux.Handle("GET /api/admin/payout-settings", s.authed(s.handleGetPayoutSettings))
 	mux.Handle("PATCH /api/admin/payout-settings", s.authed(s.handleUpdatePayoutSettings))
 	mux.Handle("GET /api/admin/users", s.authed(s.handleListUsers))

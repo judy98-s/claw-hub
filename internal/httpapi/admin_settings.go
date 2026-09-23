@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/judy98-s/claw-hub/internal/crypto"
+	"github.com/judy98-s/claw-hub/internal/domain"
 	"github.com/judy98-s/claw-hub/internal/payout"
 	"github.com/judy98-s/claw-hub/internal/store"
 )
@@ -72,6 +73,24 @@ type storeResponse struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Phone string `json:"phone"`
+
+	// 장터 설정. 둘 다 채워야 글을 쓸 수 있다.
+	RegionCode   string `json:"regionCode"`
+	RegionDetail string `json:"regionDetail"`
+	BizNo        string `json:"bizNo"`
+	// CanPostListing은 화면이 "설정을 먼저 채워주세요"를 띄울지 정한다.
+	// 글쓰기를 눌러본 뒤에 막히는 것보다 미리 아는 게 낫다.
+	CanPostListing bool `json:"canPostListing"`
+}
+
+func toStoreResponse(d store.StoreDetail) storeResponse {
+	return storeResponse{
+		ID: d.ID, Name: d.Name, Phone: d.Phone,
+		RegionCode: d.RegionCode, RegionDetail: d.RegionDetail,
+		// 화면에는 000-00-00000 으로 보여준다. DB에는 숫자만 있다.
+		BizNo:          domain.FormatBizNo(d.BizNo),
+		CanPostListing: d.CanPostListing(),
+	}
 }
 
 func (s *Server) handleGetStore(w http.ResponseWriter, r *http.Request) {
@@ -82,15 +101,18 @@ func (s *Server) handleGetStore(w http.ResponseWriter, r *http.Request) {
 		internalError(w, r, err, "매장 조회 실패")
 		return
 	}
-	writeJSON(w, http.StatusOK, storeResponse{ID: d.ID, Name: d.Name, Phone: d.Phone})
+	writeJSON(w, http.StatusOK, toStoreResponse(d))
 }
 
 func (s *Server) handleUpdateStore(w http.ResponseWriter, r *http.Request) {
 	u := authUser(r.Context())
 
 	var req struct {
-		Name  string `json:"name"`
-		Phone string `json:"phone"`
+		Name         string `json:"name"`
+		Phone        string `json:"phone"`
+		RegionCode   string `json:"regionCode"`
+		RegionDetail string `json:"regionDetail"`
+		BizNo        string `json:"bizNo"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		badRequest(w, "요청 형식이 올바르지 않습니다.")
@@ -110,12 +132,47 @@ func (s *Server) handleUpdateStore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, err := s.store.UpdateStore(r.Context(), u.StoreID, name, digits)
+	// 장터 설정 셋은 모두 선택이다. 비워두면 장터를 안 쓰는 매장이고,
+	// 그건 정상이다. 다만 적었으면 맞아야 한다.
+	profile := store.StoreProfile{Name: name, Phone: digits}
+
+	if code := strings.TrimSpace(req.RegionCode); code != "" {
+		if _, ok := domain.RegionByCode(code); !ok {
+			badRequest(w, "지역을 다시 선택해주세요.")
+			return
+		}
+		if err := domain.ValidateRegionDetail(req.RegionDetail); err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		profile.RegionCode = code
+		profile.RegionDetail = strings.TrimSpace(req.RegionDetail)
+	}
+
+	if raw := strings.TrimSpace(req.BizNo); raw != "" {
+		res, err := s.bizVerify.Verify(r.Context(), raw)
+		if err != nil {
+			internalError(w, r, err, "사업자등록번호 확인 실패")
+			return
+		}
+		if !res.OK {
+			badRequest(w, res.Message)
+			return
+		}
+		profile.BizNo = domain.NormalizeBizNo(raw)
+	}
+
+	d, err := s.store.UpdateStore(r.Context(), u.StoreID, profile)
 	if err != nil {
 		internalError(w, r, err, "매장 수정 실패")
 		return
 	}
-	writeJSON(w, http.StatusOK, storeResponse{ID: d.ID, Name: d.Name, Phone: d.Phone})
+	writeJSON(w, http.StatusOK, toStoreResponse(d))
+}
+
+// handleRegions는 설정 화면의 지역 선택지를 준다.
+func (s *Server) handleRegions(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"regions": domain.Regions()})
 }
 
 func onlyDigits(s string) string {

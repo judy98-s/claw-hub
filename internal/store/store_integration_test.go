@@ -875,7 +875,7 @@ func TestStoreDetail_수정(t *testing.T) {
 		t.Errorf("매장 = %+v", d)
 	}
 
-	upd, err := s.UpdateStore(ctx, storeID, "채현이 매장", "023334444")
+	upd, err := s.UpdateStore(ctx, storeID, StoreProfile{Name: "채현이 매장", Phone: "023334444"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1680,5 +1680,339 @@ func TestAdjustInventory_동시에_세어도_수량이_틀어지지_않는다(t 
 	// 둘 다 "30개"라고 셌으면 결과는 30이다. 차이 누적 방식이면 0이 됐다.
 	if item.QtyOnHand != 30 {
 		t.Errorf("QtyOnHand = %d, want 30 — 동시 실사가 두 번 반영됐다", item.QtyOnHand)
+	}
+}
+
+// ── 장터 ──────────────────────────────────────────────────────────────
+
+// marketFixture는 지역과 사업자등록번호가 채워진 매장을 만든다.
+func marketFixture(t *testing.T, s *Store, name, region, detail string) string {
+	t.Helper()
+	ctx := context.Background()
+	id, err := s.CreateStore(ctx, name, "0212345678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateStore(ctx, id, StoreProfile{
+		Name: name, Phone: "0212345678",
+		RegionCode: region, RegionDetail: detail, BizNo: "2208162517",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func listingInput(storeID, name string, now time.Time) CreateListingInput {
+	return CreateListingInput{
+		StoreID: storeID, Name: name, Kind: domain.ListingSell,
+		Qty: 40, UnitPriceKRW: 1800, Note: "직거래만",
+		RegionCode: "seoul", RegionDetail: "강남구", Now: now,
+	}
+}
+
+func TestCreateListing_올리고_목록에_뜬다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	mine := marketFixture(t, s, "내 매장", "seoul", "강남구")
+
+	l, err := s.CreateListing(ctx, listingInput(mine, "쿠로미 중형 30cm", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.KindLabel != "판매" || l.RegionName != "서울" {
+		t.Errorf("표기 = %q / %q", l.KindLabel, l.RegionName)
+	}
+	if !l.Mine {
+		t.Error("내 글인데 Mine=false")
+	}
+
+	got, err := s.ListListings(ctx, ListingFilter{ViewerStoreID: mine, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("목록 = %+v", got)
+	}
+}
+
+func TestListing_교환전용_글은_가격이_0이다(t *testing.T) {
+	// 화면이 실수로 값을 보내도 목록에서 "0원짜리 제일 싼 글"로
+	// 올라오지 않아야 한다.
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	mine := marketFixture(t, s, "내 매장", "seoul", "강남구")
+
+	in := listingInput(mine, "짱구 대형", now)
+	in.Kind, in.UnitPriceKRW = domain.ListingSwap, 5000
+	l, err := s.CreateListing(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.UnitPriceKRW != 0 {
+		t.Errorf("UnitPriceKRW = %d, want 0", l.UnitPriceKRW)
+	}
+}
+
+func TestListing_지역과_거래방식_필터(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	seoul := marketFixture(t, s, "서울 매장", "seoul", "강남구")
+	busan := marketFixture(t, s, "부산 매장", "busan", "해운대구")
+
+	if _, err := s.CreateListing(ctx, listingInput(seoul, "쿠로미", now)); err != nil {
+		t.Fatal(err)
+	}
+	swap := listingInput(seoul, "짱구", now)
+	swap.Kind, swap.UnitPriceKRW = domain.ListingSwap, 0
+	if _, err := s.CreateListing(ctx, swap); err != nil {
+		t.Fatal(err)
+	}
+	bs := listingInput(busan, "포켓몬", now)
+	bs.RegionCode, bs.RegionDetail = "busan", "해운대구"
+	if _, err := s.CreateListing(ctx, bs); err != nil {
+		t.Fatal(err)
+	}
+
+	all, _ := s.ListListings(ctx, ListingFilter{Now: now})
+	if len(all) != 3 {
+		t.Fatalf("전체 = %d건", len(all))
+	}
+	byRegion, _ := s.ListListings(ctx, ListingFilter{RegionCode: "seoul", Now: now})
+	if len(byRegion) != 2 {
+		t.Errorf("서울 = %d건, want 2", len(byRegion))
+	}
+	bySwap, _ := s.ListListings(ctx, ListingFilter{Kind: domain.ListingSwap, Now: now})
+	if len(bySwap) != 1 {
+		t.Errorf("교환 = %d건, want 1", len(bySwap))
+	}
+}
+
+func TestListing_둘다는_판매필터에도_교환필터에도_잡힌다(t *testing.T) {
+	// "판매"를 고른 사람에게 둘 다 파는 사람이 안 보이면, 그 사람은
+	// 장터의 절반을 못 본다.
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	mine := marketFixture(t, s, "내 매장", "seoul", "강남구")
+
+	in := listingInput(mine, "쿠로미", now)
+	in.Kind = domain.ListingBoth
+	if _, err := s.CreateListing(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, k := range []domain.ListingKind{domain.ListingSell, domain.ListingSwap} {
+		got, _ := s.ListListings(ctx, ListingFilter{Kind: k, Now: now})
+		if len(got) != 1 {
+			t.Errorf("%s 필터 = %d건, want 1", k, len(got))
+		}
+	}
+}
+
+func TestListing_만료된_글은_목록에도_상세에도_없다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	mine := marketFixture(t, s, "내 매장", "seoul", "강남구")
+	other := marketFixture(t, s, "남의 매장", "seoul", "송파구")
+
+	l, err := s.CreateListing(ctx, listingInput(mine, "쿠로미", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 29일 23시간 뒤에는 아직 살아 있다.
+	almost := now.AddDate(0, 0, domain.ListingDays).Add(-time.Hour)
+	if got, _ := s.ListListings(ctx, ListingFilter{Now: almost}); len(got) != 1 {
+		t.Errorf("만료 직전에 사라졌다: %d건", len(got))
+	}
+
+	// 30일 1분 뒤에는 없다.
+	after := now.AddDate(0, 0, domain.ListingDays).Add(time.Minute)
+	if got, _ := s.ListListings(ctx, ListingFilter{Now: after}); len(got) != 0 {
+		t.Errorf("만료된 글이 목록에 남았다: %d건", len(got))
+	}
+	if _, err := s.ListingByID(ctx, l.ID, other, after); !errors.Is(err, ErrNotFound) {
+		t.Errorf("만료된 글의 상세가 열렸다: %v", err)
+	}
+	// 내 글은 왜 안 보이는지 확인할 수 있어야 한다.
+	if _, err := s.ListingByID(ctx, l.ID, mine, after); err != nil {
+		t.Errorf("내 만료 글을 나도 못 본다: %v", err)
+	}
+}
+
+func TestListing_내린_글은_남에게_안_보인다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	mine := marketFixture(t, s, "내 매장", "seoul", "강남구")
+	other := marketFixture(t, s, "남의 매장", "seoul", "송파구")
+
+	l, err := s.CreateListing(ctx, listingInput(mine, "쿠로미", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CloseListing(ctx, l.ID, mine); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ListListings(ctx, ListingFilter{Now: now}); len(got) != 0 {
+		t.Errorf("내린 글이 목록에 남았다")
+	}
+	if _, err := s.ListingByID(ctx, l.ID, other, now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("내린 글의 상세가 열렸다: %v", err)
+	}
+	// 남이 내릴 수는 없다.
+	if err := s.CloseListing(ctx, l.ID, other); !errors.Is(err, ErrNotFound) {
+		t.Errorf("남이 내렸다: %v", err)
+	}
+}
+
+func TestContactFor_번호를_주고_열람을_기록한다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	owner := marketFixture(t, s, "글쓴 매장", "seoul", "강남구")
+	viewer := marketFixture(t, s, "보는 매장", "seoul", "송파구")
+
+	l, err := s.CreateListing(ctx, listingInput(owner, "쿠로미", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 목록 구조체에는 번호 칸 자체가 없다. 이 테스트가 그 사실을 지킨다.
+	got, _ := s.ListListings(ctx, ListingFilter{ViewerStoreID: viewer, Now: now})
+	raw := fmt.Sprintf("%+v", got)
+	if strings.Contains(raw, "0212345678") {
+		t.Fatalf("목록에 전화번호가 섞여 나왔다: %s", raw)
+	}
+
+	c, err := s.ContactFor(ctx, l.ID, viewer, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Phone != "0212345678" || c.StoreName != "글쓴 매장" {
+		t.Errorf("연락처 = %+v", c)
+	}
+
+	n, err := s.ContactsTodayFor(ctx, viewer, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("오늘 열람 = %d, want 1", n)
+	}
+	// 같은 사람이 두 번 봐도 두 줄이 남는다. 횟수 자체가 신호다.
+	if _, err := s.ContactFor(ctx, l.ID, viewer, ""); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.ContactsTodayFor(ctx, viewer, now); n != 2 {
+		t.Errorf("두 번째 열람이 안 남았다: %d", n)
+	}
+}
+
+func TestReportListing_한_매장은_한_번만_그리고_셋이면_내려간다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	owner := marketFixture(t, s, "글쓴 매장", "seoul", "강남구")
+	l, err := s.CreateListing(ctx, listingInput(owner, "쿠로미", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a := marketFixture(t, s, "신고 매장 A", "seoul", "송파구")
+	// 같은 매장이 세 번 눌러도 한 번이다. 없으면 한 명이 남의 글을 내린다.
+	for i := 0; i < 3; i++ {
+		removed, err := s.ReportListing(ctx, l.ID, a, "사진과 다름")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if removed {
+			t.Fatalf("한 매장의 반복 신고로 글이 내려갔다 (%d번째)", i+1)
+		}
+	}
+	if got, _ := s.ListListings(ctx, ListingFilter{Now: now}); len(got) != 1 {
+		t.Fatal("글이 사라졌다")
+	}
+
+	b := marketFixture(t, s, "신고 매장 B", "busan", "해운대구")
+	c := marketFixture(t, s, "신고 매장 C", "daegu", "중구")
+	if removed, _ := s.ReportListing(ctx, l.ID, b, ""); removed {
+		t.Error("두 건째에 내려갔다")
+	}
+	removed, err := s.ReportListing(ctx, l.ID, c, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Error("세 매장이 신고했는데 안 내려갔다")
+	}
+	if got, _ := s.ListListings(ctx, ListingFilter{Now: now}); len(got) != 0 {
+		t.Error("신고 누적된 글이 목록에 남았다")
+	}
+}
+
+func TestListing_남의_글에는_신고수가_안_보인다(t *testing.T) {
+	// "신고가 둘이나 쌓인 글"이라는 낙인이 되고, 그건 우리가 할 판단이 아니다.
+	ctx := context.Background()
+	s := newStore(t)
+	now := time.Now()
+	owner := marketFixture(t, s, "글쓴 매장", "seoul", "강남구")
+	viewer := marketFixture(t, s, "보는 매장", "seoul", "송파구")
+	l, err := s.CreateListing(ctx, listingInput(owner, "쿠로미", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReportListing(ctx, l.ID, viewer, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	seen, err := s.ListingByID(ctx, l.ID, viewer, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen.ReportCount != 0 {
+		t.Errorf("남의 글 신고 수가 보인다: %d", seen.ReportCount)
+	}
+	own, err := s.ListingByID(ctx, l.ID, owner, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own.ReportCount != 1 {
+		t.Errorf("내 글 신고 수 = %d, want 1", own.ReportCount)
+	}
+}
+
+func TestStoreProfile_장터_게시_조건(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	id, err := s.CreateStore(ctx, "새 매장", "0212345678")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := s.StoreByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.CanPostListing() {
+		t.Error("지역·사업자번호가 없는데 게시 가능이다")
+	}
+
+	if _, err := s.UpdateStore(ctx, id, StoreProfile{
+		Name: "새 매장", Phone: "0212345678",
+		RegionCode: "seoul", RegionDetail: "강남구", BizNo: "2208162517",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = s.StoreByID(ctx, id)
+	if !d.CanPostListing() {
+		t.Errorf("설정을 채웠는데 게시 불가다: %+v", d)
+	}
+	if d.BizNo != "2208162517" || d.RegionDetail != "강남구" {
+		t.Errorf("설정이 안 돌아왔다: %+v", d)
 	}
 }

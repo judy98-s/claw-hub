@@ -347,11 +347,14 @@ func (f *fakeStore) StoreByID(_ context.Context, id string) (store.StoreDetail, 
 	return f.storeDetail, nil
 }
 
-func (f *fakeStore) UpdateStore(_ context.Context, id, name, phone string) (store.StoreDetail, error) {
+func (f *fakeStore) UpdateStore(_ context.Context, id string, in store.StoreProfile) (store.StoreDetail, error) {
 	if id != "store-1" {
 		return store.StoreDetail{}, store.ErrNotFound
 	}
-	f.storeDetail.Name, f.storeDetail.Phone = name, phone
+	f.storeDetail.Name, f.storeDetail.Phone = in.Name, in.Phone
+	f.storeDetail.RegionCode = in.RegionCode
+	f.storeDetail.RegionDetail = in.RegionDetail
+	f.storeDetail.BizNo = in.BizNo
 	return f.storeDetail, nil
 }
 

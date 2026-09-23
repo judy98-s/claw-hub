@@ -218,6 +218,20 @@ type StoreDetail struct {
 	// PayoutAccount는 사장님이 돈을 보내는 계좌다. 평문으로 오간다.
 	// 딥링크에 넣지 않는다 — 송금 앱은 출금 계좌를 URL 로 받지 않는다.
 	PayoutAccount string
+
+	// 장터 설정. 둘 다 있어야 글을 쓸 수 있다.
+	//
+	// BizNo 는 암호화하지 않는다. 개인정보가 아니라 공개된 사업자
+	// 식별자이고, 거래 상대가 확인할 수 있어야 하는 값이다.
+	// 전화번호·계좌와 성격이 반대다.
+	RegionCode   string
+	RegionDetail string
+	BizNo        string
+}
+
+// CanPostListing은 장터에 글을 쓸 수 있는 상태인지 알려준다.
+func (d StoreDetail) CanPostListing() bool {
+	return d.RegionCode != "" && d.BizNo != ""
 }
 
 // StoreByID는 매장 정보를 읽는다.
@@ -226,10 +240,12 @@ func (s *Store) StoreByID(ctx context.Context, id string) (StoreDetail, error) {
 	var accountEnc []byte
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, name, COALESCE(phone,''),
-		       payout_provider, payout_template, payout_bank_code, payout_account_enc
+		       payout_provider, payout_template, payout_bank_code, payout_account_enc,
+		       region_code, region_detail, biz_no
 		  FROM stores WHERE id=$1`, id,
 	).Scan(&d.ID, &d.Name, &d.Phone,
-		&d.PayoutProvider, &d.PayoutTemplate, &d.PayoutBankCode, &accountEnc)
+		&d.PayoutProvider, &d.PayoutTemplate, &d.PayoutBankCode, &accountEnc,
+		&d.RegionCode, &d.RegionDetail, &d.BizNo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return StoreDetail{}, ErrNotFound
 	}
@@ -244,11 +260,25 @@ func (s *Store) StoreByID(ctx context.Context, id string) (StoreDetail, error) {
 	return d, nil
 }
 
-// UpdateStore는 매장 이름과 대표번호를 바꾼다.
+// StoreProfile은 사장님이 매장 설정 화면에서 바꾸는 값들이다.
+type StoreProfile struct {
+	Name  string
+	Phone string
+	// 아래 셋은 장터용이다. 빈 문자열이면 "아직 안 적음"이고,
+	// 그 상태에서는 글을 쓸 수 없다.
+	RegionCode   string
+	RegionDetail string
+	BizNo        string
+}
+
+// UpdateStore는 매장 설정을 바꾼다.
 // 대표번호는 손님이 기계를 못 찾았을 때 안내되는 번호다.
-func (s *Store) UpdateStore(ctx context.Context, id, name, phone string) (StoreDetail, error) {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE stores SET name=$1, phone=$2 WHERE id=$3`, name, phone, id)
+func (s *Store) UpdateStore(ctx context.Context, id string, in StoreProfile) (StoreDetail, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE stores SET name=$1, phone=$2,
+		       region_code=$3, region_detail=$4, biz_no=$5
+		 WHERE id=$6`,
+		in.Name, in.Phone, in.RegionCode, in.RegionDetail, in.BizNo, id)
 	if err != nil {
 		return StoreDetail{}, fmt.Errorf("매장 수정: %w", err)
 	}
