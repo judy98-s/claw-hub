@@ -88,7 +88,7 @@ cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
 | **Name** | `clawhub` |
 | **Image** | **Ubuntu 24.04** (Canonical Ubuntu) |
 | **Shape** | `VM.Standard.A1.Flex` → **OCPU 2 / Memory 12GB** |
-| **Networking** | 기본 VCN 자동 생성. **Assign a public IPv4 address: 예** |
+| **Networking** | 아래 §0-3-1 참고 |
 | **SSH keys** | **Paste public keys** → `clawhub.pub` 내용 붙여넣기 |
 | **Boot volume** | 기본 50GB 그대로 (무료 한도는 총 200GB) |
 
@@ -99,7 +99,43 @@ cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
 > **2026년 6월 15일부터 무료 ARM 한도가 4 OCPU/24GB 에서 2 OCPU/12GB 로
 > 줄었다.** 그보다 크게 잡으면 무료 범위를 넘어 과금된다.
 
+> **Security 항목의 `Shielded instance` 는 켜지 않는다.** 펌웨어 단계
+> 루트킷을 막는 기능이라 이 배포에는 필요가 없고, 오라클도 shielded
+> instance 와 confidential computing 을 동시에 켜지 못하게 막아 둔다.
+> `A1.Flex` 에서는 지원되지 않아 켜면 생성이 실패하기도 한다.
+> 보안은 §0-6 방화벽에서 잡는다.
+
 **Create** 를 누른다.
+
+### 0-3-1. Primary VNIC (네트워킹) — 기본값 + 두 가지만 확인
+
+Primary VNIC 는 이 인스턴스의 랜카드 설정이다. 처음이면 전부 자동 생성값
+그대로 두고, 아래 두 줄만 확인하면 된다.
+
+| 항목 | 값 |
+|---|---|
+| **Primary network** | `Create new virtual cloud network` |
+| **New virtual cloud network name** | 자동 생성된 이름 그대로 |
+| **Subnet** | `Create new subnet` |
+| **Subnet name / CIDR block** | 자동값 그대로 (`10.0.0.0/24`) |
+| **Subnet type** | ⚠️ **Public subnet** |
+| **Assign a public IPv4 address** | ⚠️ **Yes (체크)** |
+| **Assign a private DNS record** | 기본값 |
+| **IPv6** | 켜지 않는다 |
+
+`Advanced options` 는 열 필요 없다. NSG · 호스트네임 · 런치 옵션 모두 기본값.
+
+> **Private subnet 으로 만들면 공인 IP 가 붙지 않는다.** SSH 도 못 들어가고
+> QR 도 열리지 않는다. 나중에 바꿀 수 없어서 인스턴스를 지우고 다시 만들어야
+> 한다. **Public subnet** 인지 꼭 본다.
+
+> 여기서 받는 공인 IP 가 그대로 `nip.io` 주소가 된다.
+> IP 가 `152.67.89.123` 이면 → `152-67-89-123.nip.io`
+> 다만 이 IP 는 **임시(Ephemeral)** 다. 생성 직후 §0-5 에서 반드시
+> **예약(Reserved)** 으로 바꾼다.
+
+새로 만든 VCN 의 Security List 는 **22 번(SSH)만** 열려 있다. 80/443 은
+닫혀 있어 이 단계에서는 웹이 뜨지 않는 게 정상이다. §0-6 에서 연다.
 
 ### 0-4. `Out of host capacity` 가 뜨면
 
