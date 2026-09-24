@@ -30,6 +30,12 @@ Postgres 단일 인스턴스 여력의 백만 분의 일이라 트래픽으로 �
 1. **Compute → Instances → Create instance**
 2. **Image**: Ubuntu 24.04 (ARM 빌드 — Ampere 를 고르면 자동으로 맞춰진다)
 3. **Shape**: `VM.Standard.A1.Flex` → **2 OCPU / 12GB**
+
+> **ARM 이라 걱정할 것 없다.** Ampere A1 은 arm64 다. api·worker·setup 세
+> 바이너리를 `GOARCH=arm64` 로 교차 컴파일해 확인했다. Postgres·Redis·Caddy
+> 공식 이미지도 arm64 를 제공한다. 다만 x86 VPS 로 옮길 일이 생기면
+> **이미지를 다시 빌드해야 한다** — 정적 링크라 바이너리 자체는 가볍지만
+> 아키텍처는 바뀌지 않는다.
 4. SSH 공개키 등록 → 생성
 
 `Out of host capacity` 가 뜨면 다른 가용 도메인(AD-1/2/3)으로 바꿔 재시도한다.

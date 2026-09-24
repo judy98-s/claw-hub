@@ -1,0 +1,25 @@
+# Go 이미지 빌드 컨텍스트에서 뺄 것들.
+#
+# 없으면 web/node_modules(709MB) 와 web/.next(461MB) 까지 매 빌드마다
+# 데몬으로 전송된다. 빌드 컨텍스트가 1.2GB 였다.
+#
+# Go 빌드가 실제로 쓰는 건 go.mod/go.sum, cmd/, internal/, 그리고
+# internal/store/migrations (go:embed) 뿐이다.
+
+web/
+android/
+docs/
+*.md
+
+.git/
+.github/
+
+# 비밀값이 이미지 레이어에 들어가면 지워도 남는다.
+.env
+.env.*
+!.env.example
+
+# 로컬 산출물
+bin/
+dist/
+*.log
