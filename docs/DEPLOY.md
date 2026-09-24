@@ -104,12 +104,28 @@ cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
 |---|---|
 | **VCN name** | `clawhub-vcn` |
 | **Compartment** | 루트 |
-| **VCN CIDR block** | `10.0.0.0/16` (기본값) |
-| **Public subnet CIDR block** | `10.0.0.0/24` (기본값) |
-| **Private subnet CIDR block** | `10.0.1.0/24` (기본값) |
+| **VCN CIDR block** | `10.0.0.0/16` — **칸이 없으면 건너뛴다** |
+| **Public subnet CIDR block** | `10.0.0.0/24` — **칸이 없으면 건너뛴다** |
+| **Private subnet CIDR block** | `10.0.1.0/24` — **칸이 없으면 건너뛴다** |
 | **Use DNS hostnames in this VCN** | 체크 유지 |
 
-**Next → Create.** 30 초쯤 뒤 항목이 전부 초록 체크가 된다.
+콘솔 버전에 따라 **CIDR 입력칸이 아예 없고 이름만 받는다.** 그때는 마법사가
+위와 같은 값을 알아서 잡아 주므로 그냥 넘어가면 된다.
+
+**Next** 를 누르면 **Review and create** 요약이 나온다. 여기에 아래 둘이
+들어 있는지만 확인하고 **Create** 를 누른다.
+
+```
+Public Subnet          <- 있어야 한다
+Internet Gateway       <- 있어야 한다
+```
+
+30 초쯤 뒤 항목이 전부 초록 체크가 된다.
+
+> **`Create VCN` 과 `Start VCN Wizard` 는 다른 버튼이다.** 전자는 서브넷도
+> 게이트웨이도 없는 빈 VCN 만 만든다 (`Next` 없이 `Create VCN` 버튼만
+> 보이면 그 화면이다). 우리에게 필요한 게 정확히 그 둘이므로 반드시
+> **Start VCN Wizard → Create VCN with Internet Connectivity** 로 간다.
 
 이 마법사가 **Internet Gateway · 라우트 테이블 · public 서브넷**을 한 번에
 만들어 준다. 인스턴스 화면에서 직접 만들 때 빠지는 게 정확히 이 셋이다.
