@@ -6,7 +6,7 @@
 
 | | 2026년 9월 기준 | 이 앱에 |
 |---|---|---|
-| **Oracle Cloud Always Free** | 2 OCPU / 12GB ARM. 2026년 6월에 4 OCPU/24GB 에서 반토막났지만 여전히 무료 | **권장.** 차고 넘친다 |
+| **Oracle Cloud Always Free** | 2 OCPU / 12GB ARM. **2026년 6월 15일**에 4 OCPU/24GB 에서 반토막났다. 기존 사용자는 사양을 줄일 때까지 인스턴스가 정지됐다 | **권장.** 반토막나고도 차고 넘친다 |
 | Render 무료 | **15분 유휴 후 잠들고 첫 요청에 ~1분** | **손님 폼에는 못 쓴다.** 기계 앞에서 1분 기다릴 손님은 없다 |
 | Fly.io 무료 | **2024년 10월에 없어졌다.** 지금은 짧은 체험만 | 해당 없음 |
 | Vultr / Hetzner | 월 5~7천원 | Oracle 인스턴스가 안 만들어질 때의 대안 |
@@ -25,39 +25,147 @@ Postgres 단일 인스턴스 여력의 백만 분의 일이라 트래픽으로 �
 
 ## 0. Oracle Cloud 인스턴스 만들기
 
-무료 계정을 만들면 카드 등록을 요구하지만 Always Free 자원에는 청구되지 않는다.
+되돌릴 수 없는 선택이 **하나** 있고, 사람을 제일 많이 막는 벽이 **하나** 있다.
+그 둘만 알고 들어가면 나머지는 클릭이다.
 
-1. **Compute → Instances → Create instance**
-2. **Image**: Ubuntu 24.04 (ARM 빌드 — Ampere 를 고르면 자동으로 맞춰진다)
-3. **Shape**: `VM.Standard.A1.Flex` → **2 OCPU / 12GB**
+| | 왜 중요한가 |
+|---|---|
+| **홈 리전** | 가입할 때 한 번 고르면 **못 바꾼다.** 바꾸려면 계정을 새로 만들어야 한다. 그리고 Always Free 자원은 **홈 리전에서만** 만들 수 있다 |
+| **Out of host capacity** | 무료 ARM 은 수요가 많아 생성이 자주 실패한다. 계정 문제가 아니라 그 순간 재고가 없는 것이다 |
 
-> **ARM 이라 걱정할 것 없다.** Ampere A1 은 arm64 다. api·worker·setup 세
-> 바이너리를 `GOARCH=arm64` 로 교차 컴파일해 확인했다. Postgres·Redis·Caddy
-> 공식 이미지도 arm64 를 제공한다. 다만 x86 VPS 로 옮길 일이 생기면
-> **이미지를 다시 빌드해야 한다** — 정적 링크라 바이너리 자체는 가볍지만
-> 아키텍처는 바뀌지 않는다.
-4. SSH 공개키 등록 → 생성
+### 0-1. 가입
 
-`Out of host capacity` 가 뜨면 다른 가용 도메인(AD-1/2/3)으로 바꿔 재시도한다.
-그래도 안 되면 몇 시간 뒤에 다시 해본다.
+<https://www.oracle.com/cloud/free/> → **Start for free**
 
-생성되면 **방화벽을 두 군데** 열어야 한다. 하나만 열고 왜 안 되는지 찾는 일이 흔하다.
+1. 이메일 → 인증 메일의 링크
+2. 국가 **South Korea**, 이름·주소·휴대폰 인증
+3. **카드 등록** — 본인 확인용이다. Always Free 자원에는 청구되지 않는다.
+   가입하면 30일짜리 $300 체험 크레딧도 같이 주는데, 30일이 지나면 체험
+   자원은 멈추고 **Always Free 항목만 계속 남는다.** 카드로 자동 전환되지
+   않는다 (직접 Pay-As-You-Go 로 올리지 않는 한)
+4. **홈 리전 선택 — 여기가 되돌릴 수 없는 지점이다**
+
+**한국 리전(춘천 `ap-chuncheon-1` 또는 서울 `ap-seoul-1`)을 고른다.**
+손님이 기계 앞에서 여는 화면이라 가까울수록 좋다.
+
+다만 한국 리전에 ARM 재고가 없어서 며칠을 시도해도 안 될 수 있다. 그때
+선택지는 둘이다.
+
+- **계정을 새로 만들어 일본(도쿄 `ap-tokyo-1` / 오사카 `ap-osaka-1`)으로 간다.**
+  한국에서 30~40ms 라 충분히 빠르다. 이 앱은 하루 수백 건 규모라 레이턴시가
+  문제 될 구조가 아니다
+- **유료 VPS 로 간다.** 월 6천원이면 같은 사양이 즉시 나온다
+
+시간을 얼마나 쓸지 먼저 정해두면 좋다 — **이틀 시도해서 안 되면 옮긴다** 정도.
+
+### 0-2. SSH 키 만들기
+
+인스턴스를 만들 때 **공개키를 붙여야** 접속할 수 있다. 미리 만들어둔다.
 
 ```bash
-# ① 인스턴스 안쪽 (Ubuntu 기본 iptables 가 80/443 을 막고 있다)
+# 맥 / 리눅스 / 윈도우 (PowerShell, Git Bash)
+ssh-keygen -t ed25519 -C "clawhub" -f ~/.ssh/clawhub
+
+cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
+```
+
+`~/.ssh/clawhub` (확장자 없는 쪽)이 **개인키**다. 이걸 잃으면 서버에 못
+들어간다. 남에게 주지 않는다.
+
+### 0-3. 인스턴스 생성
+
+콘솔 → 햄버거 메뉴 → **Compute → Instances → Create instance**
+
+| 항목 | 값 |
+|---|---|
+| **Name** | `clawhub` |
+| **Image** | **Ubuntu 24.04** (Canonical Ubuntu) |
+| **Shape** | `VM.Standard.A1.Flex` → **OCPU 2 / Memory 12GB** |
+| **Networking** | 기본 VCN 자동 생성. **Assign a public IPv4 address: 예** |
+| **SSH keys** | **Paste public keys** → `clawhub.pub` 내용 붙여넣기 |
+| **Boot volume** | 기본 50GB 그대로 (무료 한도는 총 200GB) |
+
+> **Shape 을 꼭 확인한다.** 기본으로 잡히는 `VM.Standard.E2.1.Micro` 는
+> AMD 무료 사양인데 1 OCPU / 1GB 라 이 앱에는 빠듯하다. **Ampere** 탭에서
+> `VM.Standard.A1.Flex` 를 고르고 2/12 로 맞춘다.
+>
+> **2026년 6월 15일부터 무료 ARM 한도가 4 OCPU/24GB 에서 2 OCPU/12GB 로
+> 줄었다.** 그보다 크게 잡으면 무료 범위를 넘어 과금된다.
+
+**Create** 를 누른다.
+
+### 0-4. `Out of host capacity` 가 뜨면
+
+계정이나 설정 문제가 아니다. 그 순간 그 가용 도메인에 ARM 재고가 없는 것이다.
+
+1. **가용 도메인(AD)을 바꿔서 재시도.** 생성 화면에서 AD-1 / AD-2 / AD-3 을
+   차례로 시도한다 (리전에 따라 하나뿐일 수도 있다)
+2. **시간을 두고 다시.** 재고는 무작위로 짧게 풀린다. 몇 시간 뒤가 나을 때가 많다
+3. **새벽에 시도.** 경쟁이 덜하다
+4. 이틀을 넘기면 위 §0-1 의 두 선택지로 간다
+
+> 자동 재시도 스크립트를 돌리는 사람도 많다. 다만 오라클 약관상 과한 API
+> 호출은 계정 제한 사유가 될 수 있으니, 돌리더라도 **몇 분 간격**으로 둔다.
+
+### 0-5. 공인 IP 를 예약으로 바꾸기 — 빼먹지 말 것
+
+기본값은 **Ephemeral(임시)** 이라 인스턴스를 껐다 켜면 IP 가 바뀐다.
+그러면 `nip.io` 주소가 바뀌고 **뽑아둔 QR 스티커가 전부 죽는다.**
+
+인스턴스 상세 → **Resources → Attached VNICs** → VNIC 클릭 →
+**IPv4 Addresses** → 공인 IP 우측 ⋮ → **Edit** →
+**Reserved Public IP** 선택 → 이름 주고 **Update**
+
+이 화면에 보이는 **Public IP Address** 가 앞으로 쓸 주소다.
+`Private IP Address`(10.x / 192.168.x)는 내부용이라 쓰지 않는다.
+
+### 0-6. 방화벽 — 두 군데를 다 열어야 한다
+
+**한 군데만 열고 왜 안 되는지 찾는 일이 아주 흔하다.** 오라클은 VCN 레벨과
+인스턴스 OS 레벨에 각각 방화벽이 있다.
+
+**① VCN Security List (콘솔)**
+
+Networking → **Virtual Cloud Networks** → 해당 VCN → **Security Lists** →
+Default Security List → **Add Ingress Rules**
+
+| Source CIDR | IP Protocol | Destination Port |
+|---|---|---|
+| `0.0.0.0/0` | TCP | `80` |
+| `0.0.0.0/0` | TCP | `443` |
+
+**② 인스턴스 안쪽 iptables (SSH 접속 후)**
+
+Ubuntu 기본 iptables 가 80/443 을 막고 있다.
+
+```bash
+ssh -i ~/.ssh/clawhub ubuntu@<공인IP>
+
 sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
 sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
 sudo netfilter-persistent save
 ```
 
-② 콘솔의 **Networking → VCN → Security List** 에서도 80/443 인그레스 규칙을 추가한다.
-
-Docker 설치:
+### 0-7. Docker 설치
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER && exec su -l $USER
+
+docker --version    # 확인
 ```
+
+### 0-8. 여기까지 됐는지 확인
+
+```bash
+# 서버 안에서
+curl -I http://localhost        # 아직 아무것도 없으니 실패해도 정상
+
+# 내 PC 에서 — 포트가 열렸는지
+nc -zv <공인IP> 80
+```
+
+`nc` 가 통하면 방화벽 두 군데가 다 열린 것이다. 안 통하면 §0-6 을 다시 본다.
 
 ## 1. 준비
 
