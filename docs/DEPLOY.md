@@ -79,7 +79,45 @@ cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
 `~/.ssh/clawhub` (확장자 없는 쪽)이 **개인키**다. 이걸 잃으면 서버에 못
 들어간다. 남에게 주지 않는다.
 
-### 0-3. 인스턴스 생성
+### 0-3. VCN 을 먼저 만든다 — 인스턴스보다 앞이다
+
+**인스턴스 생성 화면 안에서는 public 서브넷을 만들 수 없다.** 거기서 VCN 을
+곁다리로 만들면 무조건 **private 서브넷**이 되고, 그러면
+`Automatically assign public IPv4 address` 토글이 꺼진 채 잠긴다.
+
+> You must select a public subnet to assign a public IPv4 address.
+
+인스턴스 생성 화면 상단에 뜨는 다음 경고가 바로 이 얘기다.
+
+> There are additional options available when you use the Networking pages
+> in the console. To have the full range of options, Create a VCN and
+> Create a Subnet and then select an existing VCN and subnet when you
+> create a compute instance.
+
+그래서 순서를 뒤집는다. VCN 먼저, 인스턴스 나중.
+
+콘솔 → 햄버거 메뉴 → **Networking → Virtual cloud networks**
+→ 컴파트먼트가 루트인지 확인 → **Start VCN Wizard**
+→ **Create VCN with Internet Connectivity** → **Start VCN Wizard**
+
+| 항목 | 값 |
+|---|---|
+| **VCN name** | `clawhub-vcn` |
+| **Compartment** | 루트 |
+| **VCN CIDR block** | `10.0.0.0/16` (기본값) |
+| **Public subnet CIDR block** | `10.0.0.0/24` (기본값) |
+| **Private subnet CIDR block** | `10.0.1.0/24` (기본값) |
+| **Use DNS hostnames in this VCN** | 체크 유지 |
+
+**Next → Create.** 30 초쯤 뒤 항목이 전부 초록 체크가 된다.
+
+이 마법사가 **Internet Gateway · 라우트 테이블 · public 서브넷**을 한 번에
+만들어 준다. 인스턴스 화면에서 직접 만들 때 빠지는 게 정확히 이 셋이다.
+
+> **서브넷은 만든 뒤에 private → public 으로 바꿀 수 없다.** 잘못 만들었으면
+> 서브넷을 지우고 다시 만드는 수밖에 없다.
+
+### 0-4. 인스턴스 생성
 
 콘솔 → 햄버거 메뉴 → **Compute → Instances → Create instance**
 
@@ -88,7 +126,7 @@ cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
 | **Name** | `clawhub` |
 | **Image** | **Ubuntu 24.04** (Canonical Ubuntu) |
 | **Shape** | `VM.Standard.A1.Flex` → **OCPU 2 / Memory 12GB** |
-| **Networking** | 아래 §0-3-1 참고 |
+| **Networking** | 아래 §0-4-1 참고 — §0-3 에서 만든 VCN 을 **고른다** |
 | **SSH keys** | **Paste public keys** → `clawhub.pub` 내용 붙여넣기 |
 | **Boot volume** | 기본 50GB 그대로 (무료 한도는 총 200GB) |
 
@@ -103,41 +141,53 @@ cat ~/.ssh/clawhub.pub    # 이 한 줄을 콘솔에 붙여넣는다
 > 루트킷을 막는 기능이라 이 배포에는 필요가 없고, 오라클도 shielded
 > instance 와 confidential computing 을 동시에 켜지 못하게 막아 둔다.
 > `A1.Flex` 에서는 지원되지 않아 켜면 생성이 실패하기도 한다.
-> 보안은 §0-6 방화벽에서 잡는다.
+> 보안은 §0-7 방화벽에서 잡는다.
 
 **Create** 를 누른다.
 
-### 0-3-1. Primary VNIC (네트워킹) — 기본값 + 두 가지만 확인
-
-Primary VNIC 는 이 인스턴스의 랜카드 설정이다. 처음이면 전부 자동 생성값
-그대로 두고, 아래 두 줄만 확인하면 된다.
+### 0-4-1. Primary VNIC (네트워킹) — 새로 만들지 말고 고른다
 
 | 항목 | 값 |
 |---|---|
-| **Primary network** | `Create new virtual cloud network` |
-| **New virtual cloud network name** | 자동 생성된 이름 그대로 |
-| **Subnet** | `Create new subnet` |
-| **Subnet name / CIDR block** | 자동값 그대로 (`10.0.0.0/24`) |
-| **Subnet type** | ⚠️ **Public subnet** |
-| **Assign a public IPv4 address** | ⚠️ **Yes (체크)** |
-| **Assign a private DNS record** | 기본값 |
-| **IPv6** | 켜지 않는다 |
+| **Primary network** | **`Select existing virtual cloud network`** |
+| VCN | `clawhub-vcn` |
+| **Subnet** | **`Select existing subnet`** |
+| Subnet | ⚠️ 이름에 **`public`** 이 들어간 쪽 |
+| **Automatically assign public IPv4 address** | ⚠️ **켠다** |
+| Assign a private DNS record | 기본값 |
+| IPv6 | 켜지 않는다 |
+
+`Create new virtual cloud network` 를 고르면 §0-3 에서 설명한 private 서브넷
+함정으로 되돌아간다. 반드시 **existing** 쪽을 고른다.
+
+서브넷 목록에는 마법사가 만든 **두 개**가 보인다. `private` 이 들어간 것을
+고르면 공인 IP 토글이 다시 잠긴다.
+
+public 서브넷을 고르는 순간 토글의 잠금이 풀린다. **풀리기만 할 뿐 저절로
+켜지지는 않는다.** 직접 켠다.
 
 `Advanced options` 는 열 필요 없다. NSG · 호스트네임 · 런치 옵션 모두 기본값.
 
-> **Private subnet 으로 만들면 공인 IP 가 붙지 않는다.** SSH 도 못 들어가고
-> QR 도 열리지 않는다. 나중에 바꿀 수 없어서 인스턴스를 지우고 다시 만들어야
-> 한다. **Public subnet** 인지 꼭 본다.
+**요약 화면에서 이 줄을 확인하고 Create 를 누른다.**
+
+```
+Public IPv4 address        Yes
+Private IPv4 address       Automatically assigned on creation
+```
+
+`No` 면 아직 안 된 것이다. 이대로 만들면 SSH 도 못 들어가고 웹도 열리지
+않으며, 나중에 고칠 수 없어 인스턴스를 지우고 다시 만들어야 한다.
 
 > 여기서 받는 공인 IP 가 그대로 `nip.io` 주소가 된다.
 > IP 가 `152.67.89.123` 이면 → `152-67-89-123.nip.io`
-> 다만 이 IP 는 **임시(Ephemeral)** 다. 생성 직후 §0-5 에서 반드시
+> 다만 이 IP 는 **임시(Ephemeral)** 다. 생성 직후 §0-6 에서 반드시
 > **예약(Reserved)** 으로 바꾼다.
 
-새로 만든 VCN 의 Security List 는 **22 번(SSH)만** 열려 있다. 80/443 은
-닫혀 있어 이 단계에서는 웹이 뜨지 않는 게 정상이다. §0-6 에서 연다.
+VCN 마법사가 만든 Security List 는 **22 번(SSH)만** 열려 있다. 80/443 은
+닫혀 있어 이 단계에서 웹이 뜨지 않는 게 정상이다. §0-7 에서 연다.
 
-### 0-4. `Out of host capacity` 가 뜨면
+### 0-5. `Out of host capacity` 가 뜨면
+
 
 계정이나 설정 문제가 아니다. 그 순간 그 가용 도메인에 ARM 재고가 없는 것이다.
 
@@ -150,7 +200,7 @@ Primary VNIC 는 이 인스턴스의 랜카드 설정이다. 처음이면 전부
 > 자동 재시도 스크립트를 돌리는 사람도 많다. 다만 오라클 약관상 과한 API
 > 호출은 계정 제한 사유가 될 수 있으니, 돌리더라도 **몇 분 간격**으로 둔다.
 
-### 0-5. 공인 IP 를 예약으로 바꾸기 — 빼먹지 말 것
+### 0-6. 공인 IP 를 예약으로 바꾸기 — 빼먹지 말 것
 
 기본값은 **Ephemeral(임시)** 이라 인스턴스를 껐다 켜면 IP 가 바뀐다.
 그러면 `nip.io` 주소가 바뀌고 **뽑아둔 QR 스티커가 전부 죽는다.**
@@ -162,7 +212,7 @@ Primary VNIC 는 이 인스턴스의 랜카드 설정이다. 처음이면 전부
 이 화면에 보이는 **Public IP Address** 가 앞으로 쓸 주소다.
 `Private IP Address`(10.x / 192.168.x)는 내부용이라 쓰지 않는다.
 
-### 0-6. 방화벽 — 두 군데를 다 열어야 한다
+### 0-7. 방화벽 — 두 군데를 다 열어야 한다
 
 **한 군데만 열고 왜 안 되는지 찾는 일이 아주 흔하다.** 오라클은 VCN 레벨과
 인스턴스 OS 레벨에 각각 방화벽이 있다.
@@ -189,7 +239,7 @@ sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
 sudo netfilter-persistent save
 ```
 
-### 0-7. Docker 설치
+### 0-8. Docker 설치
 
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
@@ -198,7 +248,7 @@ sudo usermod -aG docker $USER && exec su -l $USER
 docker --version    # 확인
 ```
 
-### 0-8. 여기까지 됐는지 확인
+### 0-9. 여기까지 됐는지 확인
 
 ```bash
 # 서버 안에서
@@ -208,7 +258,7 @@ curl -I http://localhost        # 아직 아무것도 없으니 실패해도 정
 nc -zv <공인IP> 80
 ```
 
-`nc` 가 통하면 방화벽 두 군데가 다 열린 것이다. 안 통하면 §0-6 을 다시 본다.
+`nc` 가 통하면 방화벽 두 군데가 다 열린 것이다. 안 통하면 §0-7 을 다시 본다.
 
 ## 1. 준비
 
