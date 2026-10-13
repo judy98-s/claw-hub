@@ -182,3 +182,64 @@ func anyContains(ss []string, want string) bool {
 	}
 	return false
 }
+
+func TestCharacters_검색어가_캐릭터끼리_겹치지_않는다(t *testing.T) {
+	// 같은 검색어가 두 캐릭터에 들어 있으면 그 검색량이 양쪽에 다 더해져
+	// 둘 다 실제보다 높게 나온다. "루피" 하나를 잔망루피와 원피스에 같이
+	// 넣는 실수가 이 유형이다.
+	owner := map[string]string{}
+	for _, c := range Characters() {
+		for _, k := range c.Keywords {
+			if prev, dup := owner[k]; dup {
+				t.Errorf("검색어 %q 가 %s 와 %s 에 겹친다", k, prev, c.Code)
+				continue
+			}
+			owner[k] = c.Code
+		}
+	}
+}
+
+func TestCharacters_한국_통칭이_빠지지_않았다(t *testing.T) {
+	// 데이터랩은 동의어를 모르고 문자열을 그대로 집계한다. 공식명만 넣으면
+	// 사람들이 실제로 치는 말이 통째로 빠져서 그 캐릭터가 하위권으로 나온다.
+	//
+	// 아래는 공식명과 한국 통칭이 다른 것들이다. 실제로 치이카와는
+	// "먼작귀" 없이 물어봤다면 극장판이 130억 엔을 넘긴 달에도 검색량이
+	// 거의 0으로 보였을 것이다.
+	want := map[string][]string{
+		"chiikawa":       {"먼작귀"},
+		"teenieping":     {"캐치티니핑"},
+		"demonslayer":    {"귀칼"},
+		"shinchan":       {"크레용 신짱"},
+		"manggom":        {"망곰"},
+		"animalcrossing": {"모동숲"},
+	}
+	for code, aliases := range want {
+		c, ok := CharacterByCode(code)
+		if !ok {
+			t.Errorf("%s: 목록에서 사라졌다", code)
+			continue
+		}
+		for _, a := range aliases {
+			if !contains(c.Keywords, a) {
+				t.Errorf("%s(%q): 통칭 %q 가 검색어에 없다 — %v", code, c.Name, a, c.Keywords)
+			}
+		}
+	}
+}
+
+func TestAnchorCharacter_검색어가_고정되어_있다(t *testing.T) {
+	// 앵커의 검색어를 늘리면 기준값이 커져서 다른 캐릭터 전부가 내려간
+	// 것처럼 보이고, 과거 수치와 비교할 수 없게 된다. 바꿀 때는 과거
+	// 데이터를 버린다는 뜻이므로 이 테스트를 의식적으로 고쳐야 한다.
+	a := AnchorCharacter()
+	want := []string{"헬로키티", "키티"}
+	if len(a.Keywords) != len(want) {
+		t.Fatalf("앵커 검색어 = %v, 기대 = %v", a.Keywords, want)
+	}
+	for i := range want {
+		if a.Keywords[i] != want[i] {
+			t.Fatalf("앵커 검색어 = %v, 기대 = %v", a.Keywords, want)
+		}
+	}
+}
