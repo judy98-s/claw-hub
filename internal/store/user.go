@@ -324,13 +324,50 @@ func (s *Store) UpdatePayoutSettings(ctx context.Context, id string, in PayoutSe
 	return s.StoreByID(ctx, id)
 }
 
-// CreateStore는 매장을 만든다. 초기 설정에서 쓴다.
-func (s *Store) CreateStore(ctx context.Context, name, phone string) (string, error) {
-	var id string
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO stores (name, phone) VALUES ($1,$2) RETURNING id`, name, phone).Scan(&id)
-	if err != nil {
-		return "", fmt.Errorf("매장 생성: %w", err)
+// CreateStoreWithOwner는 매장과 첫 계정을 **한 트랜잭션으로** 만든다.
+//
+// 따로 만들면 안 된다. 매장을 먼저 만들고 계정 생성이 실패하면 — 중복
+// 이메일이 가장 흔하다 — 주인 없는 빈 매장이 남는다. setup 은 돌릴 때마다
+// 매장을 새로 만들기 때문에 실패할수록 쓰레기가 쌓이고, 치우려면 Postgres
+// 에 직접 SQL 을 쳐야 한다. 실제로 겪었다.
+//
+// 비밀번호 검증과 해싱은 트랜잭션 **밖에서** 한다. bcrypt 는 100ms 가까이
+// 걸리는데 그동안 트랜잭션을 열어 둘 이유가 없다.
+func (s *Store) CreateStoreWithOwner(ctx context.Context, storeName, storePhone, email, password, name string) (string, User, error) {
+	if len(password) < 8 {
+		return "", User{}, fmt.Errorf("비밀번호는 8자 이상이어야 합니다")
 	}
-	return id, nil
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", User{}, fmt.Errorf("비밀번호 해싱: %w", err)
+	}
+
+	var (
+		storeID string
+		u       = User{Email: email, Name: name, Active: true}
+	)
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO stores (name, phone) VALUES ($1,$2) RETURNING id`,
+			storeName, storePhone).Scan(&storeID); err != nil {
+			return fmt.Errorf("매장 생성: %w", err)
+		}
+		err := tx.QueryRow(ctx, `
+			INSERT INTO users (store_id, email, password_hash, name, phone)
+			VALUES ($1,$2,$3,$4,'') RETURNING id`,
+			storeID, email, string(hash), name).Scan(&u.ID)
+		if isUniqueViolation(err) {
+			// 롤백되므로 매장도 남지 않는다.
+			return fmt.Errorf("이미 등록된 이메일입니다: %s", email)
+		}
+		if err != nil {
+			return fmt.Errorf("계정 생성: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", User{}, err
+	}
+	u.StoreID = storeID
+	return storeID, u, nil
 }

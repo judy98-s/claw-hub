@@ -36,17 +36,21 @@ func main() {
 	}
 	defer a.Close()
 
-	storeID, err := a.Store.CreateStore(ctx, *storeName, *storePhone)
+	// 매장과 계정은 한 트랜잭션으로 만든다. 따로 만들면 계정 생성이
+	// 실패했을 때 주인 없는 빈 매장이 남는데, 이 명령은 돌릴 때마다 매장을
+	// 새로 만들기 때문에 실패할수록 쓰레기가 쌓인다.
+	storeID, user, err := a.Store.CreateStoreWithOwner(ctx, *storeName, *storePhone, *email, *password, *name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "매장 생성 실패:", err)
-		os.Exit(1)
-	}
-	user, err := a.Store.CreateUser(ctx, storeID, *email, *password, *name, "")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "계정 생성 실패:", err)
+		fmt.Fprintln(os.Stderr, "생성 실패:", err)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "매장은 만들어지지 않았다 (트랜잭션이 롤백된다).")
+		fmt.Fprintln(os.Stderr, "이미 등록된 이메일이면 그 계정으로 로그인하거나,")
+		fmt.Fprintln(os.Stderr, "다른 이메일을 쓰거나, 기존 매장을 지우고 다시 만든다.")
 		os.Exit(1)
 	}
 
 	fmt.Printf("매장 생성 완료\n  매장 ID: %s\n  계정 ID: %s\n  이메일: %s\n\n", storeID, user.ID, user.Email)
 	fmt.Println("이제 /admin/login 에서 로그인한 뒤 기계를 등록하고 QR을 인쇄하세요.")
+	fmt.Println()
+	fmt.Println("비밀번호와 이메일은 화면에서 바꿀 수 없습니다. 비밀번호 관리자에 저장해 두세요.")
 }
