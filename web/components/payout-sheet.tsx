@@ -210,14 +210,14 @@ export function PayoutSheet({
             {byCard && (
               <ol className="grid gap-2 rounded-lg border border-[var(--line)] p-4 text-sm">
                 <li className="flex gap-2">
-                  <span className="font-bold text-accent-600">1</span>
+                  <span className="font-bold text-ink">1</span>
                   <span>
                     카드 단말기에서 <b>거래내역 조회</b> 또는 <b>승인취소</b>를
                     누릅니다.
                   </span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="font-bold text-accent-600">2</span>
+                  <span className="font-bold text-ink">2</span>
                   <span>
                     끝 <b>{info.cardLast4}</b>
                     {paidAtText(info.paidAtGuess) && (
@@ -229,14 +229,14 @@ export function PayoutSheet({
                   </span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="font-bold text-accent-600">3</span>
+                  <span className="font-bold text-ink">3</span>
                   <span>
                     <b>{krw(amount)}</b>을 취소합니다.
                     {amount !== info.amountKrw && " (부분취소)"}
                   </span>
                 </li>
                 <li className="flex gap-2">
-                  <span className="font-bold text-accent-600">4</span>
+                  <span className="font-bold text-ink">4</span>
                   <span>취소 영수증이 나오면 아래 버튼으로 기록합니다.</span>
                 </li>
               </ol>
@@ -256,7 +256,7 @@ export function PayoutSheet({
                     className={[
                       "h-11 rounded-lg border text-sm font-semibold transition-colors duration-150",
                       amount === v
-                        ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                        ? "border-ink bg-pink-soft text-ink"
                         : "border-[var(--line)] bg-[var(--surface)]",
                     ].join(" ")}
                   >
@@ -275,7 +275,7 @@ export function PayoutSheet({
                 aria-label={
                   byCard ? "취소할 금액 직접 입력" : "보낼 금액 직접 입력"
                 }
-                className="h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 text-base text-[var(--fg)]"
+                className="h-12 w-full rounded-md border-2 border-ink bg-surface px-3.5 text-base text-[var(--fg)]"
               />
               {amount > info.amountKrw && (
                 <p className="text-sm text-[var(--tone-stop-fg)]">
@@ -347,8 +347,8 @@ export function PayoutSheet({
                     className={[
                       "flex h-14 items-center justify-center gap-2 rounded-lg font-semibold text-white",
                       valid
-                        ? "bg-accent-600"
-                        : "pointer-events-none bg-accent-600/40",
+                        ? "bg-pink"
+                        : "pointer-events-none bg-pink/40",
                     ].join(" ")}
                   >
                     <ArrowSquareOut size={20} weight="bold" />

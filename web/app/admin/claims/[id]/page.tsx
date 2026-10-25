@@ -308,7 +308,7 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
           claim.status !== "rejected" && (
             <a
               href={`tel:${claim.phone}`}
-              className="flex h-14 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
+              className="flex h-14 items-center justify-center gap-2 rounded-lg border-2 border-ink bg-action font-extrabold text-ink shadow-[4px_4px_0_#16130F]"
             >
               <PhoneCall size={20} weight="fill" />
               {fmtPhone(claim.phone)} 로 전화하기

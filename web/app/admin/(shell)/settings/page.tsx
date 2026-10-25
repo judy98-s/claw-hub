@@ -330,7 +330,7 @@ function StoreSettings({
               value={regionCode}
               onChange={(e) => setRegionCode(e.target.value)}
               aria-label="시·도"
-              className="h-12 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-base text-[var(--fg)] focus:border-accent-600 focus:outline-none"
+              className="h-12 rounded-md border-2 border-ink bg-surface px-3 text-base text-[var(--fg)] outline-none focus:shadow-[3px_3px_0_#FF8FB1]"
             >
               <option value="">시·도 선택</option>
               {regions.map((r) => (
@@ -469,7 +469,7 @@ function PayoutSection({
                 className={[
                   "grid gap-0.5 rounded-lg border p-3 text-left transition-colors duration-150",
                   on
-                    ? "border-accent-600 bg-[var(--tone-accent-bg)]"
+                    ? "border-ink bg-pink-soft"
                     : "border-[var(--line)] bg-[var(--surface)]",
                 ].join(" ")}
               >
@@ -517,7 +517,7 @@ function PayoutSection({
             <select
               value={bankCode}
               onChange={(e) => setBankCode(e.target.value)}
-              className="h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-base text-[var(--fg)]"
+              className="h-12 w-full rounded-md border-2 border-ink bg-surface px-3 text-base text-[var(--fg)]"
             >
               <option value="">선택 안 함</option>
               {value.banks.map((b) => (

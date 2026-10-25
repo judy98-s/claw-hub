@@ -108,7 +108,7 @@ export default function ContactsPage() {
                       "h-9 rounded-md text-xs font-semibold transition-colors duration-150",
                       "disabled:opacity-50",
                       c.manualStatus === s.value
-                        ? "bg-accent-600 text-white"
+                        ? "border-2 border-ink bg-action text-ink"
                         : "bg-[var(--surface-sunken)] text-[var(--muted)]",
                     ].join(" ")}
                   >

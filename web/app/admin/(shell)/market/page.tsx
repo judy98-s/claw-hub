@@ -142,7 +142,7 @@ export default function MarketPage() {
             }}
             aria-label="지역"
             disabled={mineOnly}
-            className="h-10 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--fg)] disabled:opacity-50"
+            className="h-10 rounded-md border-2 border-ink bg-surface px-3 text-sm font-medium text-[var(--fg)] disabled:opacity-50"
           >
             <option value="">전국</option>
             {regions.map((r) => (
@@ -164,7 +164,7 @@ export default function MarketPage() {
               className={[
                 "h-10 rounded-full px-4 text-sm font-semibold transition-colors duration-150",
                 !mineOnly && kind === t.value
-                  ? "bg-accent-600 text-white"
+                  ? "border-2 border-ink bg-action text-ink"
                   : "bg-[var(--surface-sunken)] text-[var(--muted)]",
               ].join(" ")}
             >
@@ -179,7 +179,7 @@ export default function MarketPage() {
             className={[
               "h-10 rounded-full px-4 text-sm font-semibold transition-colors duration-150",
               mineOnly
-                ? "bg-accent-600 text-white"
+                ? "border-2 border-ink bg-action text-ink"
                 : "bg-[var(--surface-sunken)] text-[var(--muted)]",
             ].join(" ")}
           >
@@ -310,7 +310,7 @@ function ListingRow({
             <div className="grid gap-1.5 rounded-lg bg-[var(--surface-sunken)] p-3">
               <a
                 href={`tel:${contact.phone}`}
-                className="flex h-12 items-center justify-center gap-2 rounded-lg bg-accent-600 font-semibold text-white"
+                className="flex h-12 items-center justify-center gap-2 rounded-lg border-2 border-ink bg-action font-extrabold text-ink shadow-[4px_4px_0_#16130F]"
               >
                 <Phone size={18} weight="fill" />
                 {fmtPhone(contact.phone)}

@@ -177,7 +177,7 @@ function Sparkline({ values }: { values: number[] }) {
       {values.map((v, i) => (
         <span
           key={i}
-          className={`w-1.5 rounded-sm ${v > 0 ? "bg-accent-500" : "bg-[var(--surface-sunken)]"}`}
+          className={`w-1.5 rounded-sm ${v > 0 ? "bg-pink" : "bg-[var(--surface-sunken)]"}`}
           style={{ height: `${Math.max(12, (v / max) * 100)}%` }}
         />
       ))}

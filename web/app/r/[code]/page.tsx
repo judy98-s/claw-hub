@@ -60,7 +60,7 @@ function MachineNotFound({ storePhone }: { storePhone: string }) {
         {storePhone && (
           <a
             href={`tel:${storePhone}`}
-            className="mt-2 inline-flex h-14 items-center justify-center rounded-lg bg-accent-600 px-6 font-semibold text-white"
+            className="mt-2 inline-flex h-14 items-center justify-center rounded-lg border-2 border-ink bg-action px-6 font-extrabold text-ink shadow-[4px_4px_0_#16130F]"
           >
             매장에 전화하기
           </a>

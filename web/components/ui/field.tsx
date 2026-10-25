@@ -110,12 +110,14 @@ export function Field({
 }
 
 const inputBase =
-  "w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 " +
+  "w-full rounded-md border-2 border-ink bg-surface px-3.5 " +
   // 16px 미만이면 iOS가 포커스 시 페이지를 확대한다. 확대되면 손님이
   // 폼을 채우다 길을 잃는다.
-  "text-base text-[var(--fg)] placeholder:text-[var(--color-ink-400)] " +
-  "focus:border-accent-600 focus:outline-none " +
-  "aria-[invalid=true]:border-stop-600";
+  "text-base font-medium text-ink placeholder:text-ink-soft/60 " +
+  // v2 의 포커스는 테두리 색이 아니라 분홍 각진 그림자다 (§4.4).
+  // 테두리를 바꾸면 2px 먹선이 사라져 칸이 얕아 보인다.
+  "outline-none focus:shadow-[3px_3px_0_#FF8FB1] " +
+  "aria-[invalid=true]:shadow-[3px_3px_0_#B91C1C]";
 
 export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputBase} h-12 ${className}`} />;

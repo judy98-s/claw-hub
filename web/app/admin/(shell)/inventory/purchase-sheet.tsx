@@ -226,7 +226,7 @@ export function PurchaseSheet({
                           "h-10 rounded-lg border px-3 text-sm font-medium",
                           "transition-colors duration-150",
                           vendor === v
-                            ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                            ? "border-ink bg-pink-soft text-ink"
                             : "border-[var(--line)] bg-[var(--surface)]",
                         ].join(" ")}
                       >

@@ -53,7 +53,7 @@ export default async function DonePage({
 
         <Link
           href={`/r/${code}`}
-          className="mt-2 text-sm font-semibold text-accent-600 underline underline-offset-4"
+          className="mt-2 text-sm font-semibold text-ink underline underline-offset-4"
         >
           다른 문제 신고하기
         </Link>

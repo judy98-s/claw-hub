@@ -342,7 +342,7 @@ function CountSheet({
             inputMode="numeric"
             value={counted}
             onChange={(e) => setCounted(e.target.value.replace(/[^0-9]/g, ""))}
-            className="h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 text-base tabular-nums text-[var(--fg)] focus:border-accent-600 focus:outline-none"
+            className="h-12 w-full rounded-md border-2 border-ink bg-surface px-3.5 text-base tabular-nums text-[var(--fg)] outline-none focus:shadow-[3px_3px_0_#FF8FB1]"
           />
 
           {diff !== 0 && n >= 0 && (
@@ -359,7 +359,7 @@ function CountSheet({
             placeholder="메모 (선택)"
             maxLength={200}
             aria-label="실사 메모"
-            className="h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 text-base text-[var(--fg)] focus:border-accent-600 focus:outline-none"
+            className="h-12 w-full rounded-md border-2 border-ink bg-surface px-3.5 text-base text-[var(--fg)] outline-none focus:shadow-[3px_3px_0_#FF8FB1]"
           />
 
           {error && (

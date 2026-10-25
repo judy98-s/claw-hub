@@ -199,13 +199,13 @@ export function ClaimForm({
                     "grid min-h-20 content-center gap-0.5 rounded-lg border p-3 text-left",
                     "transition-colors duration-150",
                     on
-                      ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                      ? "border-ink bg-pink-soft text-ink"
                       : "border-[var(--line)] bg-[var(--surface)]",
                   ].join(" ")}
                 >
                   <span className="font-semibold">{issue.label}</span>
                   <span
-                    className={`text-xs ${on ? "text-[var(--tone-accent-fg)]" : "text-[var(--muted)]"}`}
+                    className={`text-xs ${on ? "text-ink" : "text-[var(--muted)]"}`}
                   >
                     {issue.hint}
                   </span>
@@ -227,7 +227,7 @@ export function ClaimForm({
                   className={[
                     "h-11 rounded-lg border text-sm font-semibold transition-colors duration-150",
                     amountNum === a
-                      ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                      ? "border-ink bg-pink-soft text-ink"
                       : "border-[var(--line)] bg-[var(--surface)]",
                   ].join(" ")}
                 >
@@ -394,14 +394,14 @@ export function ClaimForm({
                     "grid min-h-20 content-center gap-1 rounded-lg border p-3 text-left",
                     "transition-colors duration-150",
                     on
-                      ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                      ? "border-ink bg-pink-soft text-ink"
                       : "border-[var(--line)] bg-[var(--surface)]",
                   ].join(" ")}
                 >
                   <Icon size={22} weight={on ? "fill" : "regular"} />
                   <span className="font-semibold">{label}</span>
                   <span
-                    className={`text-xs ${on ? "text-[var(--tone-accent-fg)]" : "text-[var(--muted)]"}`}
+                    className={`text-xs ${on ? "text-ink" : "text-[var(--muted)]"}`}
                   >
                     {hint}
                   </span>
@@ -418,7 +418,7 @@ export function ClaimForm({
         */}
         {byCard && (
           <>
-            <div className="flex gap-2.5 rounded-lg bg-[var(--tone-accent-bg)] p-3.5 text-[var(--tone-accent-fg)]">
+            <div className="flex gap-2.5 rounded-lg bg-pink-soft p-3.5 text-ink">
               <Info size={20} weight="fill" className="mt-0.5 shrink-0" />
               <p className="text-sm">
                 카드 결제는 <b>결제를 취소해드립니다.</b> 계좌번호는 필요 없고,
@@ -477,7 +477,7 @@ export function ClaimForm({
                         className={[
                           "h-12 rounded-lg border px-1 text-sm font-medium transition-colors duration-150",
                           on
-                            ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                            ? "border-ink bg-pink-soft text-ink"
                             : "border-[var(--line)] bg-[var(--surface)]",
                         ].join(" ")}
                       >
@@ -490,7 +490,7 @@ export function ClaimForm({
                   <button
                     type="button"
                     onClick={() => setAllBanks(true)}
-                    className="h-10 text-sm font-semibold text-accent-600 underline underline-offset-4"
+                    className="h-10 text-sm font-semibold text-ink underline underline-offset-4"
                   >
                     다른 은행 찾기
                   </button>

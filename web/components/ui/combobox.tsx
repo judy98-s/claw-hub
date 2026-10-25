@@ -96,9 +96,9 @@ export function Combobox({
         aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
         autoComplete="off"
         className={
-          "h-12 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 " +
+          "h-12 w-full rounded-md border-2 border-ink bg-surface px-3.5 " +
           "text-base text-[var(--fg)] placeholder:text-[var(--color-ink-400)] " +
-          "focus:border-accent-600 focus:outline-none " +
+          "outline-none focus:shadow-[3px_3px_0_#FF8FB1] " +
           className
         }
       />
@@ -107,7 +107,7 @@ export function Combobox({
         <ul
           id={listId}
           role="listbox"
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[var(--line)] bg-[var(--surface)] py-1 shadow-lg"
+          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-md border-2 border-ink bg-surface py-1 shadow-lg"
         >
           {shown.map((o, i) => (
             <li

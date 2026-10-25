@@ -124,13 +124,13 @@ export function ListingSheet({
                       "grid min-h-16 content-center gap-0.5 rounded-lg border p-2 text-center",
                       "transition-colors duration-150",
                       on
-                        ? "border-accent-600 bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]"
+                        ? "border-ink bg-pink-soft text-ink"
                         : "border-[var(--line)] bg-[var(--surface)]",
                     ].join(" ")}
                   >
                     <span className="font-semibold">{k.label}</span>
                     <span
-                      className={`text-[11px] leading-tight ${on ? "text-[var(--tone-accent-fg)]" : "text-[var(--muted)]"}`}
+                      className={`text-[11px] leading-tight ${on ? "text-ink" : "text-[var(--muted)]"}`}
                     >
                       {k.hint}
                     </span>
