@@ -178,40 +178,79 @@ else
   mapfile -t ADS < <(oci iam availability-domain list --compartment-id "$COMP" | jq -r '.data[].name')
   [ "${#ADS[@]}" -gt 0 ] || die "가용 도메인을 찾지 못했다."
 
-  say "인스턴스 만들기 — 가용 도메인 ${#ADS[@]}개를 차례로 시도"
+  # 무료 계정의 LaunchInstance 는 두 가지 이유로 자주 거절된다.
+  #
+  #   Out of host capacity (500) — 그 순간 그 AD 에 ARM 재고가 없다
+  #   TooManyRequests   (429)    — 오라클이 요청 속도를 제한한다
+  #
+  # 둘 다 설정 문제가 아니고, 기다렸다 다시 부르면 통한다. 429 는 특히
+  # 무료 계정에 공격적으로 걸리고 과거 시도 횟수까지 누적된다. 그래서
+  # 치명적 오류로 보지 않고 백오프를 두고 재시도한다.
+  MAX_ATTEMPTS="${MAX_ATTEMPTS:-6}"
+  say "인스턴스 만들기 — 가용 도메인 ${#ADS[@]}개 × 최대 ${MAX_ATTEMPTS}회"
   LOG=$(mktemp)
-  for AD in "${ADS[@]}"; do
-    printf '    %s ... ' "$AD"
-    if oci compute instance launch \
-        --compartment-id "$COMP" \
-        --availability-domain "$AD" \
-        --subnet-id "$SUBNET_ID" \
-        --image-id "$IMAGE_ID" \
-        --shape "VM.Standard.A1.Flex" \
-        --shape-config "{\"ocpus\":$OCPUS,\"memoryInGBs\":$MEMORY_GB}" \
-        --boot-volume-size-in-gbs "$BOOT_GB" \
-        --display-name "$NAME" \
-        --assign-public-ip true \
-        --ssh-authorized-keys-file "$AUTH_KEYS" \
-        --wait-for-state RUNNING \
-        > "$LOG" 2>&1; then
-      INST_ID=$(jq -r '.data.id' "$LOG")
-      printf '\033[0;32m성공\033[0m\n'
-      break
-    fi
-    if grep -qi 'out of host capacity\|OutOfCapacity' "$LOG"; then
-      printf '\033[0;33m재고 없음\033[0m\n'
-    else
-      printf '\033[0;31m오류\033[0m\n'
-      tail -20 "$LOG" >&2
-      die "인스턴스 생성이 실패했다. 위 오류를 보내라."
-    fi
+  BACKOFF=90
+
+  for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
+    THROTTLED=0
+    for AD in "${ADS[@]}"; do
+      printf '    [%d/%d] %s ... ' "$attempt" "$MAX_ATTEMPTS" "$AD"
+      if oci compute instance launch \
+          --compartment-id "$COMP" \
+          --availability-domain "$AD" \
+          --subnet-id "$SUBNET_ID" \
+          --image-id "$IMAGE_ID" \
+          --shape "VM.Standard.A1.Flex" \
+          --shape-config "{\"ocpus\":$OCPUS,\"memoryInGBs\":$MEMORY_GB}" \
+          --boot-volume-size-in-gbs "$BOOT_GB" \
+          --display-name "$NAME" \
+          --assign-public-ip true \
+          --ssh-authorized-keys-file "$AUTH_KEYS" \
+          --wait-for-state RUNNING \
+          > "$LOG" 2>&1; then
+        INST_ID=$(jq -r '.data.id' "$LOG")
+        printf '\033[0;32m성공\033[0m\n'
+        break 2
+      fi
+
+      if grep -qi 'TooManyRequests\|"status": *429' "$LOG"; then
+        printf '\033[0;33m요청 제한 (429)\033[0m\n'
+        THROTTLED=1
+      elif grep -qi 'out of host capacity\|OutOfCapacity\|OutOfHostCapacity' "$LOG"; then
+        printf '\033[0;33m재고 없음\033[0m\n'
+      elif grep -qi 'LimitExceeded\|QuotaExceeded' "$LOG"; then
+        printf '\033[0;31m한도 초과\033[0m\n'
+        tail -25 "$LOG" >&2
+        die "무료 한도를 넘었다. 이미 떠 있는 인스턴스가 ARM 2 OCPU 를 쓰고 있지 않은지 확인하라."
+      else
+        printf '\033[0;31m오류\033[0m\n'
+        tail -25 "$LOG" >&2
+        die "예상하지 못한 오류다. 위 내용을 보내라."
+      fi
+    done
+
+    [ "$attempt" -lt "$MAX_ATTEMPTS" ] || break
+
+    # 429 는 속도 제한이므로 더 길게 쉰다. 재고 부족은 다음 분에 풀릴
+    # 수도 있어서 짧게 쉰다.
+    WAIT=$BACKOFF
+    [ "$THROTTLED" -eq 1 ] && WAIT=$((BACKOFF * 2))
+    [ "$WAIT" -gt 600 ] && WAIT=600
+    warn "${WAIT}초 쉬고 다시 시도한다. (Ctrl+C 로 중단해도 다시 돌리면 이어진다)"
+    sleep "$WAIT"
+    BACKOFF=$((BACKOFF * 2))
   done
 
   if [ -z "${INST_ID:-}" ] || [ "$INST_ID" = "null" ]; then
-    warn "모든 가용 도메인에 ARM 재고가 없다. 계정이나 설정 문제가 아니다."
-    warn "몇 시간 뒤 다시 돌려라 (한국 새벽에 잘 풀린다). 이 스크립트는"
-    warn "이미 만든 VCN·서브넷을 건너뛰고 인스턴스만 다시 시도한다."
+    warn "아직 못 만들었다. 계정이나 설정 문제가 아니다."
+    warn ""
+    warn "  429 요청 제한이었다면 — 30분 ~ 1시간 뒤에 다시 돌린다."
+    warn "  재고 없음이었다면   — 몇 시간 뒤, 한국 새벽에 잘 풀린다."
+    warn ""
+    warn "다시 돌릴 때 이미 만든 VCN·서브넷·보안규칙은 건너뛰고 인스턴스만"
+    warn "시도한다. 더 오래 재시도하려면 MAX_ATTEMPTS 를 올린다:"
+    warn ""
+    warn "  MAX_ATTEMPTS=20 bash oci-provision.sh"
     exit 2
   fi
 fi
