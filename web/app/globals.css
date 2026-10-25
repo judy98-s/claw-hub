@@ -59,6 +59,21 @@
   --radius-card: 0.75rem;
 }
 
+/*
+  한글은 단어 중간에서 끊지 않는다.
+
+  기본값(break-word)은 영어 기준이라 "붙이고" 가 "붙 / 이고" 로, "취소" 가
+  "취 / 소" 로 갈라진다. 읽는 속도가 눈에 띄게 떨어지고 싸구려로 보인다.
+  keep-all 은 공백 단위로만 끊는다.
+
+  대신 긴 URL·계좌번호처럼 공백 없는 문자열이 칸을 넘칠 수 있어서
+  overflow-wrap 으로 그 경우만 받아 준다.
+*/
+body {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
 :root {
   color-scheme: light;
   --bg: var(--color-ink-50);
