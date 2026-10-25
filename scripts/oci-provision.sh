@@ -7,6 +7,11 @@
 #
 #   bash oci-provision.sh
 #
+# 내 PC 에 이미 쓰던 공개키가 있으면 같이 넣을 수 있다. 그래야 Cloud Shell
+# 과 내 PC 양쪽에서 접속된다:
+#
+#   EXTRA_SSH_PUBKEY='ssh-ed25519 AAAA... clawhub' bash oci-provision.sh
+#
 # 만드는 것 (전부 Always Free):
 #   - VCN 1개                       10.0.0.0/16
 #   - 인터넷 게이트웨이 1개
@@ -53,14 +58,38 @@ REGION="${OCI_REGION:-$(oci iam region-subscription list --query 'data[0]."regio
 say "리전 $REGION / 컴파트먼트 ${COMP:0:30}..."
 
 # ── 1. SSH 키 ────────────────────────────────────────────────────────
+#
+# Cloud Shell 은 FIPS 모드로 돌아서 ed25519 를 거부한다
+# ("ED25519 keys are not allowed in FIPS mode"). RSA 4096 은 FIPS 에서도
+# 허용되고 OCI 가 권장하는 형식이다. 다른 환경에서 돌릴 때는 ed25519 를
+# 먼저 시도하고, 거부당하면 RSA 로 내려간다.
 say "SSH 키"
+mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
 if [ -f "${SSH_KEY}.pub" ]; then
   ok "이미 있다: ${SSH_KEY}.pub"
 else
-  ssh-keygen -t ed25519 -f "$SSH_KEY" -N '' -C "$NAME" >/dev/null
-  ok "새로 만들었다: ${SSH_KEY}"
+  if ssh-keygen -t ed25519 -f "$SSH_KEY" -N '' -C "$NAME" >/dev/null 2>&1; then
+    ok "새로 만들었다 (ed25519): ${SSH_KEY}"
+  else
+    rm -f "$SSH_KEY" "${SSH_KEY}.pub"
+    ssh-keygen -t rsa -b 4096 -f "$SSH_KEY" -N '' -C "$NAME" >/dev/null \
+      || die "SSH 키 생성에 실패했다."
+    ok "새로 만들었다 (RSA 4096 — FIPS 모드): ${SSH_KEY}"
+  fi
   warn "개인키 ${SSH_KEY} 는 이 Cloud Shell 안에만 있다."
-  warn "내 PC 에서도 접속하려면 뒤에 안내하는 대로 내려받아라."
+  warn "내 PC 에서도 접속하려면 맨 끝 안내를 본다."
+fi
+
+# 인스턴스에 넣을 공개키 목록. 여러 줄을 넣으면 그 키들 전부로 접속된다.
+# 내 PC 키를 EXTRA_SSH_PUBKEY 로 주면 양쪽에서 들어갈 수 있다.
+AUTH_KEYS=$(mktemp)
+cat "${SSH_KEY}.pub" > "$AUTH_KEYS"
+if [ -n "${EXTRA_SSH_PUBKEY:-}" ]; then
+  case "$EXTRA_SSH_PUBKEY" in
+    ssh-*|ecdsa-*) printf '%s\n' "$EXTRA_SSH_PUBKEY" >> "$AUTH_KEYS"
+                   ok "EXTRA_SSH_PUBKEY 도 함께 넣는다" ;;
+    *) die "EXTRA_SSH_PUBKEY 가 공개키 형식이 아니다. ssh- 로 시작해야 한다. 개인키를 넣지 않았는지 확인하라." ;;
+  esac
 fi
 
 # ── 2. Ubuntu 24.04 ARM 이미지 ───────────────────────────────────────
@@ -163,7 +192,7 @@ else
         --boot-volume-size-in-gbs "$BOOT_GB" \
         --display-name "$NAME" \
         --assign-public-ip true \
-        --ssh-authorized-keys-file "${SSH_KEY}.pub" \
+        --ssh-authorized-keys-file "$AUTH_KEYS" \
         --wait-for-state RUNNING \
         > "$LOG" 2>&1; then
       INST_ID=$(jq -r '.data.id' "$LOG")
