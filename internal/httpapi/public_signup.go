@@ -7,6 +7,8 @@ import (
 	"net/mail"
 	"strings"
 	"time"
+
+	"github.com/judy98-s/claw-hub/internal/domain"
 )
 
 // signupsPerIPPerDay는 한 IP에서 하루에 만들 수 있는 매장 수다.
@@ -19,6 +21,9 @@ const signupsPerIPPerDay = 3
 type signupRequest struct {
 	StoreName string `json:"storeName"`
 	Phone     string `json:"phone"`
+	// StoreType은 업종이다. 손님 폼의 캐릭터·증상 목록·빠른 금액·스티커
+	// 문구가 전부 이 값으로 갈린다. 나중에 설정에서 바꿀 수 있다.
+	StoreType string `json:"storeType"`
 	Email     string `json:"email"`
 	Password  string `json:"password"`
 	Name      string `json:"name"`
@@ -59,6 +64,12 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "매장 이름이 너무 깁니다.")
 		return
 	}
+	// 모르는 업종을 조용히 기본값으로 떨어뜨리지 않는다. 손님 화면이
+	// 통째로 다른 캐릭터로 나오는데 원인이 보이지 않는다.
+	if req.StoreType != "" && !domain.ValidStoreType(req.StoreType) {
+		badRequest(w, "업종을 다시 골라주세요.")
+		return
+	}
 	if _, err := mail.ParseAddress(req.Email); err != nil {
 		badRequest(w, "이메일 형식을 확인해주세요.")
 		return
@@ -76,7 +87,9 @@ func (s *Server) handleSignup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	storeID, user, err := s.store.CreateStoreWithOwner(
-		r.Context(), req.StoreName, req.Phone, req.Email, req.Password, req.Name)
+		r.Context(), req.StoreName, req.Phone,
+		domain.NormalizeStoreType(req.StoreType),
+		req.Email, req.Password, req.Name)
 	if err != nil {
 		// 로그인과 달리 이메일 중복을 숨기지 않는다. 숨기면 "가입했는데
 		// 로그인이 안 된다"는 상태에 갇힌다. 가입 화면에서 이 정보가

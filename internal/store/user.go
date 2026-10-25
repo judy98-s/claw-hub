@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/judy98-s/claw-hub/internal/domain"
 )
 
 // ErrLocked는 로그인 시도가 너무 많아 잠긴 계정이다.
@@ -210,6 +212,8 @@ type StoreDetail struct {
 	ID    string
 	Name  string
 	Phone string
+	// Type은 업종이다. 손님이 보는 것 거의 전부가 이 값으로 갈린다.
+	Type domain.StoreType
 
 	// 송금 설정. 사장님이 화면에서 정한다.
 	PayoutProvider string
@@ -239,11 +243,11 @@ func (s *Store) StoreByID(ctx context.Context, id string) (StoreDetail, error) {
 	var d StoreDetail
 	var accountEnc []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, name, COALESCE(phone,''),
+		SELECT id, name, COALESCE(phone,''), store_type,
 		       payout_provider, payout_template, payout_bank_code, payout_account_enc,
 		       region_code, region_detail, biz_no
 		  FROM stores WHERE id=$1`, id,
-	).Scan(&d.ID, &d.Name, &d.Phone,
+	).Scan(&d.ID, &d.Name, &d.Phone, &d.Type,
 		&d.PayoutProvider, &d.PayoutTemplate, &d.PayoutBankCode, &accountEnc,
 		&d.RegionCode, &d.RegionDetail, &d.BizNo)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -264,6 +268,9 @@ func (s *Store) StoreByID(ctx context.Context, id string) (StoreDetail, error) {
 type StoreProfile struct {
 	Name  string
 	Phone string
+	// Type은 업종이다. 빈 문자열이면 바꾸지 않는다 — 장터 설정만 고치는
+	// 화면이 업종을 기본값으로 덮어쓰지 않게 한다.
+	Type domain.StoreType
 	// 아래 셋은 장터용이다. 빈 문자열이면 "아직 안 적음"이고,
 	// 그 상태에서는 글을 쓸 수 없다.
 	RegionCode   string
@@ -274,11 +281,15 @@ type StoreProfile struct {
 // UpdateStore는 매장 설정을 바꾼다.
 // 대표번호는 손님이 기계를 못 찾았을 때 안내되는 번호다.
 func (s *Store) UpdateStore(ctx context.Context, id string, in StoreProfile) (StoreDetail, error) {
+	// 업종은 빈 문자열이면 건드리지 않는다. 장터 설정만 고치는 화면이
+	// 업종을 기본값으로 덮어쓰지 않게 COALESCE 대신 NULLIF 로 받는다.
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE stores SET name=$1, phone=$2,
-		       region_code=$3, region_detail=$4, biz_no=$5
-		 WHERE id=$6`,
-		in.Name, in.Phone, in.RegionCode, in.RegionDetail, in.BizNo, id)
+		       region_code=$3, region_detail=$4, biz_no=$5,
+		       store_type = COALESCE(NULLIF($6,''), store_type)
+		 WHERE id=$7`,
+		in.Name, in.Phone, in.RegionCode, in.RegionDetail, in.BizNo,
+		string(in.Type), id)
 	if err != nil {
 		return StoreDetail{}, fmt.Errorf("매장 수정: %w", err)
 	}
@@ -333,7 +344,7 @@ func (s *Store) UpdatePayoutSettings(ctx context.Context, id string, in PayoutSe
 //
 // 비밀번호 검증과 해싱은 트랜잭션 **밖에서** 한다. bcrypt 는 100ms 가까이
 // 걸리는데 그동안 트랜잭션을 열어 둘 이유가 없다.
-func (s *Store) CreateStoreWithOwner(ctx context.Context, storeName, storePhone, email, password, name string) (string, User, error) {
+func (s *Store) CreateStoreWithOwner(ctx context.Context, storeName, storePhone string, storeType domain.StoreType, email, password, name string) (string, User, error) {
 	if len(password) < 8 {
 		return "", User{}, fmt.Errorf("비밀번호는 8자 이상이어야 합니다")
 	}
@@ -348,8 +359,8 @@ func (s *Store) CreateStoreWithOwner(ctx context.Context, storeName, storePhone,
 	)
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO stores (name, phone) VALUES ($1,$2) RETURNING id`,
-			storeName, storePhone).Scan(&storeID); err != nil {
+			`INSERT INTO stores (name, phone, store_type) VALUES ($1,$2,$3) RETURNING id`,
+			storeName, storePhone, string(domain.NormalizeStoreType(string(storeType)))).Scan(&storeID); err != nil {
 			return fmt.Errorf("매장 생성: %w", err)
 		}
 		err := tx.QueryRow(ctx, `

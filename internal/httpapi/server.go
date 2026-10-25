@@ -39,7 +39,7 @@ type Store interface {
 	CreateMachine(ctx context.Context, storeID, label, location string) (domain.Machine, error)
 	UpdateMachine(ctx context.Context, storeID, id, label, location string, active bool) error
 
-	CreateStoreWithOwner(ctx context.Context, storeName, storePhone, email, password, name string) (string, store.User, error)
+	CreateStoreWithOwner(ctx context.Context, storeName, storePhone string, storeType domain.StoreType, email, password, name string) (string, store.User, error)
 	UpdateUser(ctx context.Context, storeID, userID, name, phone string) (store.User, error)
 	ListUsers(ctx context.Context, storeID string) ([]store.User, error)
 	CreateUser(ctx context.Context, storeID, email, password, name, phone string) (store.User, error)

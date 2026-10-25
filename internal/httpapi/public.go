@@ -32,10 +32,13 @@ const (
 
 // machineResponse는 QR을 찍었을 때 손님 화면이 받는 정보다.
 type machineResponse struct {
-	Code               string `json:"code"`
-	Label              string `json:"label"`
-	StoreName          string `json:"storeName"`
-	StorePhone         string `json:"storePhone"`
+	Code       string `json:"code"`
+	Label      string `json:"label"`
+	StoreName  string `json:"storeName"`
+	StorePhone string `json:"storePhone"`
+	// StoreType은 업종이다. 손님 폼의 캐릭터·증상 목록·빠른 금액이
+	// 이 값으로 갈린다.
+	StoreType          string `json:"storeType"`
 	ReviewThresholdKRW int    `json:"reviewThresholdKrw"`
 	MaxAmountKRW       int    `json:"maxAmountKrw"`
 	MaxPhotos          int    `json:"maxPhotos"`
@@ -67,6 +70,7 @@ func (s *Server) handleMachineByCode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, machineResponse{
 		Code: m.Code, Label: m.Label,
 		StoreName: info.Name, StorePhone: info.Phone,
+		StoreType:          string(domain.NormalizeStoreType(string(info.Type))),
 		ReviewThresholdKRW: s.policy.ReviewThresholdKRW,
 		MaxAmountKRW:       s.policy.MaxAmountKRW,
 		MaxPhotos:          maxPhotos,

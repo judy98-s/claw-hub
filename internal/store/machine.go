@@ -19,10 +19,11 @@ func (s *Store) MachineByCode(ctx context.Context, code string) (domain.Machine,
 	var st StoreInfo
 	err := s.pool.QueryRow(ctx, `
 		SELECT m.id, m.store_id, m.code, m.label, m.location, m.active,
-		       s.name, COALESCE(s.phone, '')
+		       s.name, COALESCE(s.phone, ''), s.store_type
 		  FROM machines m JOIN stores s ON s.id = m.store_id
 		 WHERE m.code = $1 AND m.active`, code,
-	).Scan(&m.ID, &m.StoreID, &m.Code, &m.Label, &m.Location, &m.Active, &st.Name, &st.Phone)
+	).Scan(&m.ID, &m.StoreID, &m.Code, &m.Label, &m.Location, &m.Active,
+		&st.Name, &st.Phone, &st.Type)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Machine{}, StoreInfo{}, ErrNotFound
 	}
@@ -38,6 +39,9 @@ func (s *Store) MachineByCode(ctx context.Context, code string) (domain.Machine,
 type StoreInfo struct {
 	Name  string
 	Phone string
+	// Type은 업종이다. 손님 폼의 캐릭터·증상 목록·빠른 금액이 이 값으로
+	// 갈리므로, 기계를 찾을 때 함께 내려준다.
+	Type domain.StoreType
 }
 
 // MachineStat은 기계 한 대의 목록용 요약이다.

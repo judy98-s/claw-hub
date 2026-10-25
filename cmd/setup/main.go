@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/judy98-s/claw-hub/internal/app"
+	"github.com/judy98-s/claw-hub/internal/domain"
 )
 
 func main() {
@@ -20,11 +21,19 @@ func main() {
 		email      = flag.String("email", "", "사장님 로그인 이메일 (필수)")
 		password   = flag.String("password", "", "비밀번호, 8자 이상 (필수)")
 		name       = flag.String("name", "사장님", "표시 이름 (로그인 후 바꿀 수 있습니다)")
+		storeType  = flag.String("type", "claw", "업종: claw|laundry|karaoke|photo|study|cafe")
 	)
 	flag.Parse()
 
 	if *storeName == "" || *email == "" || *password == "" {
 		flag.Usage()
+		os.Exit(2)
+	}
+	// 업종은 손님 화면 거의 전부를 가른다. 오타를 조용히 기본값으로
+	// 떨어뜨리면 왜 다른 캐릭터가 나오는지 찾기 어렵다.
+	if !domain.ValidStoreType(*storeType) {
+		fmt.Fprintf(os.Stderr, "-type 이 올바르지 않습니다: %q\n", *storeType)
+		fmt.Fprintln(os.Stderr, "쓸 수 있는 값: claw laundry karaoke photo study cafe")
 		os.Exit(2)
 	}
 
@@ -39,7 +48,8 @@ func main() {
 	// 매장과 계정은 한 트랜잭션으로 만든다. 따로 만들면 계정 생성이
 	// 실패했을 때 주인 없는 빈 매장이 남는데, 이 명령은 돌릴 때마다 매장을
 	// 새로 만들기 때문에 실패할수록 쓰레기가 쌓인다.
-	storeID, user, err := a.Store.CreateStoreWithOwner(ctx, *storeName, *storePhone, *email, *password, *name)
+	storeID, user, err := a.Store.CreateStoreWithOwner(ctx, *storeName, *storePhone,
+		domain.StoreType(*storeType), *email, *password, *name)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "생성 실패:", err)
 		fmt.Fprintln(os.Stderr)

@@ -367,7 +367,7 @@ func (f *fakeStore) StoreByID(_ context.Context, id string) (store.StoreDetail, 
 // 장터는 매장이 하나면 아무것도 검증되지 않는다.
 // CreateStoreWithOwner는 진짜 구현처럼 전부 성공하거나 전부 실패한다.
 // 이메일이 겹치면 매장도 남지 않아야 한다 — 그게 이 메서드의 요점이다.
-func (f *fakeStore) CreateStoreWithOwner(_ context.Context, storeName, storePhone, email, password, name string) (string, store.User, error) {
+func (f *fakeStore) CreateStoreWithOwner(_ context.Context, storeName, storePhone string, storeType domain.StoreType, email, password, name string) (string, store.User, error) {
 	if len(password) < 8 {
 		return "", store.User{}, errors.New("비밀번호는 8자 이상이어야 합니다")
 	}
@@ -379,7 +379,7 @@ func (f *fakeStore) CreateStoreWithOwner(_ context.Context, storeName, storePhon
 		}
 	}
 	id := fmt.Sprintf("store-%d", len(f.stores)+1)
-	f.stores[id] = store.StoreDetail{ID: id, Name: storeName, Phone: storePhone}
+	f.stores[id] = store.StoreDetail{ID: id, Name: storeName, Phone: storePhone, Type: storeType}
 	u := store.User{
 		ID: fmt.Sprintf("user-%d", len(f.users)+1), StoreID: id,
 		Email: email, Name: name, Active: true,

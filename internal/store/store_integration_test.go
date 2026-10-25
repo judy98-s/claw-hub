@@ -73,7 +73,7 @@ var storeSeq atomic.Int64
 
 func createStore(ctx context.Context, s *Store, name, phone string) (string, User, error) {
 	email := fmt.Sprintf("owner-%d@example.test", storeSeq.Add(1))
-	return s.CreateStoreWithOwner(ctx, name, phone, email, "test-password-1234", "사장님")
+	return s.CreateStoreWithOwner(ctx, name, phone, domain.StoreClaw, email, "test-password-1234", "사장님")
 }
 
 // fixture는 매장 하나와 기계 하나를 만든다.
@@ -2041,13 +2041,13 @@ func TestCreateStoreWithOwner_이메일이_겹치면_매장도_남지_않는다(
 	ctx := context.Background()
 
 	const email = "dup@example.test"
-	if _, _, err := s.CreateStoreWithOwner(ctx, "첫 매장", "0212345678", email, "test-password-1234", "사장님"); err != nil {
+	if _, _, err := s.CreateStoreWithOwner(ctx, "첫 매장", "0212345678", domain.StoreClaw, email, "test-password-1234", "사장님"); err != nil {
 		t.Fatalf("첫 생성: %v", err)
 	}
 
 	before := countStores(t, s)
 
-	_, _, err := s.CreateStoreWithOwner(ctx, "둘째 매장", "0299998888", email, "test-password-1234", "사장님")
+	_, _, err := s.CreateStoreWithOwner(ctx, "둘째 매장", "0299998888", domain.StoreClaw, email, "test-password-1234", "사장님")
 	if err == nil {
 		t.Fatal("중복 이메일인데 성공했다")
 	}
@@ -2065,7 +2065,7 @@ func TestCreateStoreWithOwner_짧은_비밀번호는_매장을_만들지_않는�
 	ctx := context.Background()
 
 	before := countStores(t, s)
-	if _, _, err := s.CreateStoreWithOwner(ctx, "매장", "", "short@example.test", "1234567", "사장님"); err == nil {
+	if _, _, err := s.CreateStoreWithOwner(ctx, "매장", "", domain.StoreClaw, "short@example.test", "1234567", "사장님"); err == nil {
 		t.Fatal("7자 비밀번호인데 성공했다")
 	}
 	if after := countStores(t, s); after != before {
@@ -2077,7 +2077,7 @@ func TestCreateStoreWithOwner_성공하면_계정이_그_매장에_속한다(t *
 	s := newStore(t)
 	ctx := context.Background()
 
-	storeID, u, err := s.CreateStoreWithOwner(ctx, "홍대점", "0212345678", "ok@example.test", "test-password-1234", "김사장")
+	storeID, u, err := s.CreateStoreWithOwner(ctx, "홍대점", "0212345678", domain.StoreClaw, "ok@example.test", "test-password-1234", "김사장")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2106,4 +2106,87 @@ func countStores(t *testing.T, s *Store) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+func TestStoreType_저장되고_기계조회로_따라나온다(t *testing.T) {
+	// 업종은 손님이 보는 것 거의 전부를 가른다. 매장에 저장되는 것만으로는
+	// 부족하고, 손님이 QR 을 찍었을 때 기계와 함께 따라 나와야 한다.
+	s := newStore(t)
+	ctx := context.Background()
+
+	storeID, _, err := s.CreateStoreWithOwner(ctx, "빨래방", "0212345678",
+		domain.StoreLaundry, "laundry@example.test", "test-password-1234", "사장님")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := s.StoreByID(ctx, storeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Type != domain.StoreLaundry {
+		t.Errorf("매장 업종 = %q, want laundry", d.Type)
+	}
+
+	m, err := s.CreateMachine(ctx, storeID, "3번 세탁기", "안쪽")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, info, err := s.MachineByCode(ctx, m.Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Type != domain.StoreLaundry {
+		t.Errorf("기계 조회의 업종 = %q, want laundry", info.Type)
+	}
+}
+
+func TestStoreType_빈값이면_업종을_덮어쓰지_않는다(t *testing.T) {
+	// 장터 설정만 고치는 화면이 업종을 기본값(claw)으로 밀어버리면,
+	// 손님 화면의 캐릭터가 조용히 바뀐다.
+	s := newStore(t)
+	ctx := context.Background()
+
+	storeID, _, err := s.CreateStoreWithOwner(ctx, "노래방", "", domain.StoreKaraoke,
+		"k@example.test", "test-password-1234", "사장님")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := s.UpdateStore(ctx, storeID, StoreProfile{
+		Name: "노래방", Phone: "0299998888",
+		RegionCode: "busan", RegionDetail: "해운대구", BizNo: "2208162517",
+		// Type 을 비워 둔다
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Type != domain.StoreKaraoke {
+		t.Errorf("업종 = %q, want karaoke — 빈 값이 덮어썼다", d.Type)
+	}
+
+	// 명시하면 바뀐다.
+	d, err = s.UpdateStore(ctx, storeID, StoreProfile{
+		Name: "카페로 전업", Phone: "", Type: domain.StoreCafe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Type != domain.StoreCafe {
+		t.Errorf("업종 = %q, want cafe", d.Type)
+	}
+}
+
+func TestStoreType_아는_값만_들어간다(t *testing.T) {
+	// DB 제약이 실제로 걸려 있는지 본다. 애플리케이션 검증만 믿으면
+	// 수동 SQL 이나 다른 경로로 오타가 들어온다.
+	s := newStore(t)
+	_, err := s.pool.Exec(context.Background(),
+		`INSERT INTO stores (name, store_type) VALUES ('x', 'bowling')`)
+	if err == nil {
+		t.Fatal("모르는 업종이 들어갔다 — CHECK 제약이 없다")
+	}
+	if !strings.Contains(err.Error(), "stores_store_type_check") {
+		t.Errorf("오류 = %v", err)
+	}
 }

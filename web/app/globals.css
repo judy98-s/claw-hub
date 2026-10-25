@@ -195,10 +195,20 @@ body {
   }
 }
 
-/* 키보드 사용자에게만 포커스 링을 보인다. */
-:focus-visible {
-  outline: 2px solid var(--color-accent-600);
-  outline-offset: 2px;
+/*
+  키보드 사용자에게만 포커스 링을 보인다.
+
+  @layer base 안에 두는 이유: Tailwind v4 에서 레이어 밖의 평범한 규칙은
+  유틸리티 클래스를 이긴다. 밖에 두면 ArcadeInput 의 outline-none 이
+  먹히지 않아 청록 링과 분홍 그림자가 같이 뜬다(v2 에서 청록은 쓰지
+  않는데 포커스에서만 되살아났다). base 로 내리면 자기 포커스를 직접
+  그리는 컴포넌트가 이기고, 나머지는 이 기본값을 받는다.
+*/
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
 }
 
 @utility surface {
