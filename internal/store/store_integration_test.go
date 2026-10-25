@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,11 +63,24 @@ func newStore(t *testing.T) *Store {
 	return s
 }
 
+// createStore는 테스트용 매장을 만든다.
+//
+// CreateStore 는 없어졌다 — 주인 없는 매장을 만들 수 있는 길 자체를 없앴기
+// 때문이다(CreateStoreWithOwner 주석 참고). 테스트 대부분은 매장 ID 만
+// 필요하므로 계정은 만들고 버린다. 이메일은 유니크 제약이 있어서 호출마다
+// 다르게 만든다.
+var storeSeq atomic.Int64
+
+func createStore(ctx context.Context, s *Store, name, phone string) (string, User, error) {
+	email := fmt.Sprintf("owner-%d@example.test", storeSeq.Add(1))
+	return s.CreateStoreWithOwner(ctx, name, phone, email, "test-password-1234", "사장님")
+}
+
 // fixture는 매장 하나와 기계 하나를 만든다.
 func fixture(t *testing.T, s *Store) (storeID string, machine domain.Machine) {
 	t.Helper()
 	ctx := context.Background()
-	storeID, err := s.CreateStore(ctx, "테스트 매장", "0212345678")
+	storeID, _, err := createStore(ctx, s, "테스트 매장", "0212345678")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +246,7 @@ func TestCreateClaim_다른_매장이면_같은_멱등키도_따로_저장된다
 	ctx := context.Background()
 	s := newStore(t)
 	storeA, mA := fixture(t, s)
-	storeB, err := s.CreateStore(ctx, "다른 매장", "")
+	storeB, _, err := createStore(ctx, s, "다른 매장", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +486,7 @@ func TestClaimByID_다른_매장건은_찾지_못한다(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
 	storeA, mA := fixture(t, s)
-	storeB, err := s.CreateStore(ctx, "남의 매장", "")
+	storeB, _, err := createStore(ctx, s, "남의 매장", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -795,9 +809,10 @@ func TestListMachines_7일_추이는_항상_7칸(t *testing.T) {
 func TestUserProfile_수정과_직원추가(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	storeID, _ := fixture(t, s)
 
-	ownerAcct, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님", "")
+	// 매장은 주인 계정과 함께 생긴다. 주인을 따로 또 만들면 실제보다
+	// 계정이 하나 많은 상태를 검증하게 된다.
+	storeID, ownerAcct, err := createStore(ctx, s, "테스트 매장", "0212345678")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -851,9 +866,10 @@ func TestSetUserActive_비활성_계정은_로그인도_조회도_안된다(t *t
 func TestSetUserActive_마지막_계정은_막는다(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	storeID, _ := fixture(t, s)
 
-	only, err := s.CreateUser(ctx, storeID, "owner@example.com", "secret123", "사장님", "")
+	// 갓 만든 매장에는 주인 계정 하나뿐이다. 그 하나를 끄면 아무도
+	// 로그인할 수 없으므로 막혀야 한다.
+	storeID, only, err := createStore(ctx, s, "테스트 매장", "0212345678")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1689,7 +1705,7 @@ func TestAdjustInventory_동시에_세어도_수량이_틀어지지_않는다(t 
 func marketFixture(t *testing.T, s *Store, name, region, detail string) string {
 	t.Helper()
 	ctx := context.Background()
-	id, err := s.CreateStore(ctx, name, "0212345678")
+	id, _, err := createStore(ctx, s, name, "0212345678")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1989,7 +2005,7 @@ func TestListing_남의_글에는_신고수가_안_보인다(t *testing.T) {
 func TestStoreProfile_장터_게시_조건(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
-	id, err := s.CreateStore(ctx, "새 매장", "0212345678")
+	id, _, err := createStore(ctx, s, "새 매장", "0212345678")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2015,4 +2031,79 @@ func TestStoreProfile_장터_게시_조건(t *testing.T) {
 	if d.BizNo != "2208162517" || d.RegionDetail != "강남구" {
 		t.Errorf("설정이 안 돌아왔다: %+v", d)
 	}
+}
+
+func TestCreateStoreWithOwner_이메일이_겹치면_매장도_남지_않는다(t *testing.T) {
+	// 이 테스트가 막는 사고: 매장을 먼저 만들고 계정을 만드는 구조에서는
+	// 중복 이메일로 계정 생성이 실패했을 때 주인 없는 빈 매장이 남았다.
+	// setup 은 돌릴 때마다 매장을 새로 만들기 때문에 실패할수록 쌓인다.
+	s := newStore(t)
+	ctx := context.Background()
+
+	const email = "dup@example.test"
+	if _, _, err := s.CreateStoreWithOwner(ctx, "첫 매장", "0212345678", email, "test-password-1234", "사장님"); err != nil {
+		t.Fatalf("첫 생성: %v", err)
+	}
+
+	before := countStores(t, s)
+
+	_, _, err := s.CreateStoreWithOwner(ctx, "둘째 매장", "0299998888", email, "test-password-1234", "사장님")
+	if err == nil {
+		t.Fatal("중복 이메일인데 성공했다")
+	}
+	if !strings.Contains(err.Error(), "이미 등록된 이메일") {
+		t.Fatalf("오류 메시지 = %v", err)
+	}
+
+	if after := countStores(t, s); after != before {
+		t.Errorf("매장 수 %d → %d — 롤백되지 않아 빈 매장이 남았다", before, after)
+	}
+}
+
+func TestCreateStoreWithOwner_짧은_비밀번호는_매장을_만들지_않는다(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	before := countStores(t, s)
+	if _, _, err := s.CreateStoreWithOwner(ctx, "매장", "", "short@example.test", "1234567", "사장님"); err == nil {
+		t.Fatal("7자 비밀번호인데 성공했다")
+	}
+	if after := countStores(t, s); after != before {
+		t.Errorf("매장 수 %d → %d — 검증 실패인데 매장이 생겼다", before, after)
+	}
+}
+
+func TestCreateStoreWithOwner_성공하면_계정이_그_매장에_속한다(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	storeID, u, err := s.CreateStoreWithOwner(ctx, "홍대점", "0212345678", "ok@example.test", "test-password-1234", "김사장")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.StoreID != storeID {
+		t.Errorf("계정의 store_id = %q, 매장 = %q", u.StoreID, storeID)
+	}
+	if u.Email != "ok@example.test" || u.Name != "김사장" || !u.Active {
+		t.Errorf("계정 = %+v", u)
+	}
+
+	// 그 비밀번호로 실제 로그인이 되어야 한다. 해시가 트랜잭션 밖에서
+	// 만들어지므로 엉뚱한 값이 들어갈 여지가 있다.
+	got, err := s.Authenticate(ctx, "ok@example.test", "test-password-1234")
+	if err != nil {
+		t.Fatalf("로그인: %v", err)
+	}
+	if got.ID != u.ID {
+		t.Errorf("로그인한 계정 = %q, 만든 계정 = %q", got.ID, u.ID)
+	}
+}
+
+func countStores(t *testing.T, s *Store) int {
+	t.Helper()
+	var n int
+	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM stores`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }

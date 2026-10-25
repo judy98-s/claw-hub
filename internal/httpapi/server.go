@@ -39,6 +39,7 @@ type Store interface {
 	CreateMachine(ctx context.Context, storeID, label, location string) (domain.Machine, error)
 	UpdateMachine(ctx context.Context, storeID, id, label, location string, active bool) error
 
+	CreateStoreWithOwner(ctx context.Context, storeName, storePhone, email, password, name string) (string, store.User, error)
 	UpdateUser(ctx context.Context, storeID, userID, name, phone string) (store.User, error)
 	ListUsers(ctx context.Context, storeID string) ([]store.User, error)
 	CreateUser(ctx context.Context, storeID, email, password, name, phone string) (store.User, error)
@@ -146,6 +147,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/public/machines/{code}", s.handleMachineByCode)
 	mux.HandleFunc("GET /api/public/banks", s.handleBanks)
 	mux.Handle("POST /api/public/claims", s.rateLimitPublic(http.HandlerFunc(s.handleCreateClaim)))
+	mux.HandleFunc("GET /api/public/signup", s.handleSignupStatus)
+	mux.Handle("POST /api/public/signup", s.rateLimitSignup(http.HandlerFunc(s.handleSignup)))
 
 	// 관리자 — 세션 인증
 	mux.HandleFunc("POST /api/admin/login", s.handleLogin)

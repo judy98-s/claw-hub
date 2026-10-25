@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { ApiError, post } from "@/lib/api";
+import { ApiError, get, post } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 
@@ -13,6 +14,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // 가입이 닫힌 서버에서는 링크를 아예 띄우지 않는다. 눌러서 "가입을 받지
+  // 않습니다"를 보는 것보다 없는 편이 낫다.
+  const [signupOpen, setSignupOpen] = useState(false);
+  useEffect(() => {
+    get<{ open: boolean }>("/api/public/signup")
+      .then((r) => setSignupOpen(r.open))
+      .catch(() => setSignupOpen(false));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -58,6 +68,15 @@ export default function LoginPage() {
         <Button type="submit" size="lg" full loading={busy}>
           로그인
         </Button>
+
+        {signupOpen && (
+          <p className="text-center text-sm text-neutral-600">
+            매장이 아직 없나요?{" "}
+            <Link href="/admin/signup" className="font-medium underline">
+              매장 만들기
+            </Link>
+          </p>
+        )}
       </form>
     </main>
   );

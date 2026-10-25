@@ -45,6 +45,14 @@ type Config struct {
 
 	PayoutDeeplinkTemplates map[string]string
 
+	// SignupOpen이 false면 회원가입 API와 화면이 닫힌다.
+	//
+	// 기본값을 true로 둔 이유: 꺼져 있으면 계정을 만들 길이 서버 셸뿐이고,
+	// 그걸 모르는 사람에게는 고장으로 보인다. 다만 열어 두면 주소를 아는
+	// 누구나 매장을 만들 수 있으므로, 내 매장 계정을 만든 뒤에는 닫는 편이
+	// 낫다. 닫아도 이미 만든 계정의 로그인에는 영향이 없다.
+	SignupOpen bool
+
 	Policy Policy
 }
 
@@ -84,6 +92,7 @@ func LoadFrom(get Getenv) (Config, error) {
 		SessionSecret:     v.key("SESSION_SECRET"),
 
 		PayoutDeeplinkTemplates: v.jsonMap("PAYOUT_DEEPLINK_TEMPLATES"),
+		SignupOpen:              v.boolVal("SIGNUP_OPEN", true),
 
 		Policy: Policy{
 			ReviewThresholdKRW:   v.intVal("POLICY_REVIEW_THRESHOLD_KRW", 10000),
@@ -145,6 +154,26 @@ func (l *loader) key(name string) []byte {
 		return nil
 	}
 	return b
+}
+
+// boolVal은 참/거짓을 읽는다. "1", "true", "yes", "on"을 참으로 본다.
+//
+// 알아보지 못하는 값은 기본값으로 넘기지 않고 오류로 모은다. SIGNUP_OPEN=flase
+// 같은 오타가 조용히 기본값으로 떨어지면, 열어 뒀다고 믿는 쪽이 닫혀 있거나
+// 그 반대가 된다. 둘 다 눈에 안 보인다.
+func (l *loader) boolVal(name string, def bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(l.get(name)))
+	switch raw {
+	case "":
+		return def
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		l.fail("%s 는 true 또는 false 여야 합니다 (현재 %q)", name, raw)
+		return def
+	}
 }
 
 func (l *loader) intVal(name string, def int) int {

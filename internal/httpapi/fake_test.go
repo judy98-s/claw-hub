@@ -365,6 +365,29 @@ func (f *fakeStore) StoreByID(_ context.Context, id string) (store.StoreDetail, 
 
 // addStore는 두 번째 매장과 그 매장 사장님 계정을 만든다.
 // 장터는 매장이 하나면 아무것도 검증되지 않는다.
+// CreateStoreWithOwner는 진짜 구현처럼 전부 성공하거나 전부 실패한다.
+// 이메일이 겹치면 매장도 남지 않아야 한다 — 그게 이 메서드의 요점이다.
+func (f *fakeStore) CreateStoreWithOwner(_ context.Context, storeName, storePhone, email, password, name string) (string, store.User, error) {
+	if len(password) < 8 {
+		return "", store.User{}, errors.New("비밀번호는 8자 이상이어야 합니다")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, u := range f.users {
+		if u.Email == email {
+			return "", store.User{}, fmt.Errorf("이미 등록된 이메일입니다: %s", email)
+		}
+	}
+	id := fmt.Sprintf("store-%d", len(f.stores)+1)
+	f.stores[id] = store.StoreDetail{ID: id, Name: storeName, Phone: storePhone}
+	u := store.User{
+		ID: fmt.Sprintf("user-%d", len(f.users)+1), StoreID: id,
+		Email: email, Name: name, Active: true,
+	}
+	f.users = append(f.users, u)
+	return id, u, nil
+}
+
 func (f *fakeStore) addStore(id, name, phone string) store.User {
 	f.mu.Lock()
 	defer f.mu.Unlock()
