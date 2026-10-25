@@ -56,6 +56,19 @@
   --color-stop-600: #b91c1c;
   --color-stop-700: #991b1b;
 
+  /* 로즈. 마스코트와 마케팅 면(랜딩)의 색이다.
+     액센트(청록)는 **행동의 색**으로 남긴다 — 버튼·링크·포커스.
+     로즈는 **장식의 색**이라 누를 수 있는 것에 쓰지 않는다. 이 구분이
+     없으면 분홍과 청록이 같은 화면에서 서로 싸운다. */
+  --color-rose-50: #fff6f7;
+  --color-rose-100: #ffe9ec;
+  --color-rose-200: #ffd4da;
+  --color-rose-300: #ffbcc5;
+  --color-rose-400: #f99aa8;
+  --color-rose-500: #f58ca0;
+  --color-rose-600: #c4707a;
+  --color-rose-700: #9d535d;
+
   --radius-card: 0.75rem;
 }
 

@@ -29,12 +29,23 @@
 
 export type MascotMood = "calm" | "happy" | "worried" | "sleep";
 
-const LINE = "#5a4f45";
-const EYE = "#3a322c";
-const CREAM = "#fffdfa";
-const BLUSH = "#f7b0ab";
-const METAL = "#cdc8bf";
-const TEAL = "var(--color-accent-500, #14897c)";
+/*
+  선을 2.2 에서 1.7 로 줄였다. 굵은 선은 '귀여움' 쪽으로, 가는 선은
+  '세련됨' 쪽으로 간다. 다만 1.4 아래로 내리면 22px 에서 외곽선이 사라져
+  형체가 뭉개진다 — 세 굵기를 실제로 렌더해 보고 1.7 에서 멈췄다.
+
+  색은 아주 연한 핑크 대신 **실제로 분홍으로 읽히는** 톤을 골랐다. 더
+  연하면 흰색에 분홍 기미가 도는 정도라 작은 자리에서 흰 덩어리가 된다.
+
+  로즈는 globals.css 에서 '장식의 색' 으로 정의했다. 누를 수 있는 것에는
+  쓰지 않는다 — 그건 액센트(청록)의 몫이다.
+*/
+const LINE = "#c4707a";
+const EYE = "#4a3230";
+const BODY = "#ffe9ec";
+const EAR = "#ffc3cd";
+const BLUSH = "#f58ca0";
+const METAL = "#efe3e0";
 
 const INK = { stroke: EYE, strokeWidth: 2.2, strokeLinecap: "round" as const, fill: "none" };
 
@@ -68,18 +79,20 @@ export function Mascot({
     >
       {claw && <Claw />}
 
-      <g stroke={LINE} strokeWidth="2.2" strokeLinejoin="round">
-        <ellipse cx="50" cy="110" rx="7.5" ry="5" fill={CREAM} />
-        <ellipse cx="70" cy="110" rx="7.5" ry="5" fill={CREAM} />
+      <g stroke={LINE} strokeWidth="1.7" strokeLinejoin="round">
+        <ellipse cx="50" cy="110" rx="7.5" ry="5" fill={BODY} />
+        <ellipse cx="70" cy="110" rx="7.5" ry="5" fill={BODY} />
         {/* 몸은 머리에 거의 가려지는 작은 덩어리다. */}
-        <path d="M60 84c-12 0-18 6-18 15 0 7 8 11 18 11s18-4 18-11c0-9-6-15-18-15Z" fill={CREAM} />
+        <path d="M60 84c-12 0-18 6-18 15 0 7 8 11 18 11s18-4 18-11c0-9-6-15-18-15Z" fill={BODY} />
         <Ears mood={mood} />
         {/* 머리. 완벽한 원이 아니라 살짝 눌린 실루엣이라야 손그림으로 읽힌다. */}
-        <path d="M60 22C38 22 26 36 26 55c0 20 14 33 34 33s34-13 34-33C94 36 82 22 60 22Z" fill={CREAM} />
+        <path d="M60 22C38 22 26 36 26 55c0 20 14 33 34 33s34-13 34-33C94 36 82 22 60 22Z" fill={BODY} />
       </g>
 
-      <ellipse cx="36" cy="71" rx="6" ry="3.8" fill={BLUSH} opacity="0.8" />
-      <ellipse cx="84" cy="71" rx="6" ry="3.8" fill={BLUSH} opacity="0.8" />
+      <InnerEars mood={mood} />
+
+      <ellipse cx="36" cy="71" rx="6" ry="3.8" fill={BLUSH} opacity="0.75" />
+      <ellipse cx="84" cy="71" rx="6" ry="3.8" fill={BLUSH} opacity="0.75" />
 
       <Face mood={mood} />
 
@@ -87,12 +100,12 @@ export function Mascot({
           스티커로 보이고, 이 태그가 '동물' 과 '봉제인형' 을 가른다. */}
       <path
         d="M78 96l7 -2.2v8l-7 -2.2z"
-        fill={CREAM}
+        fill={BODY}
         stroke={LINE}
-        strokeWidth="2"
+        strokeWidth="1.7"
         strokeLinejoin="round"
       />
-      <path d="M80.5 96.5h2.5" stroke={TEAL} strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M80.5 96.5h2.5" stroke={BLUSH} strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -107,23 +120,45 @@ function Ears({ mood }: { mood: MascotMood }) {
   if (mood === "happy") {
     return (
       <>
-        <path d="M46 26q-5 -26 2 -24 7 2 7 24" fill={CREAM} />
-        <path d="M74 26q5 -26 -2 -24 -7 2 -7 24" fill={CREAM} />
+        <path d="M46 26q-5 -26 2 -24 7 2 7 24" fill={BODY} />
+        <path d="M74 26q5 -26 -2 -24 -7 2 -7 24" fill={BODY} />
       </>
     );
   }
   if (mood === "worried" || mood === "sleep") {
     return (
       <>
-        <path d="M44 30q-16 -14 -10 -19 6 -5 16 13" fill={CREAM} />
-        <path d="M76 30q16 -14 10 -19 -6 -5 -16 13" fill={CREAM} />
+        <path d="M44 30q-16 -14 -10 -19 6 -5 16 13" fill={BODY} />
+        <path d="M76 30q16 -14 10 -19 -6 -5 -16 13" fill={BODY} />
       </>
     );
   }
   return (
     <>
-      <path d="M46 28q-7 -22 0 -22 7 0 8 21" fill={CREAM} />
-      <path d="M74 28q7 -22 0 -22 -7 0 -8 21" fill={CREAM} />
+      <path d="M46 28q-7 -22 0 -22 7 0 8 21" fill={BODY} />
+      <path d="M74 28q7 -22 0 -22 -7 0 -8 21" fill={BODY} />
+    </>
+  );
+}
+
+/**
+ * 귀 안쪽. 처진 귀(worried·sleep)에는 넣지 않는다 — 접힌 귀의 안쪽은
+ * 보이지 않는 게 맞고, 넣으면 귀가 접혔다는 사실이 흐려진다.
+ */
+function InnerEars({ mood }: { mood: MascotMood }) {
+  if (mood === "worried" || mood === "sleep") return null;
+  if (mood === "happy") {
+    return (
+      <>
+        <path d="M48 24q-2.5 -17 1 -16 3.5 1 3.5 16Z" fill={EAR} />
+        <path d="M72 24q2.5 -17 -1 -16 -3.5 1 -3.5 16Z" fill={EAR} />
+      </>
+    );
+  }
+  return (
+    <>
+      <path d="M48 26q-3.5 -15 0 -15 3.5 0 4 14Z" fill={EAR} />
+      <path d="M72 26q3.5 -15 0 -15 -3.5 0 -4 14Z" fill={EAR} />
     </>
   );
 }
@@ -179,10 +214,10 @@ function Claw() {
   };
   return (
     <g>
-      <path d="M60 -30v8" {...s} strokeWidth="3" />
-      <rect x="51" y="-23" width="18" height="7" rx="3.5" fill={METAL} stroke={LINE} strokeWidth="2.2" />
-      <path d="M55 -15q-28 13 -37 34" {...s} strokeWidth="3.4" />
-      <path d="M65 -15q28 13 37 34" {...s} strokeWidth="3.4" />
+      <path d="M60 -30v8" {...s} strokeWidth="2.3" />
+      <rect x="51" y="-23" width="18" height="7" rx="3.5" fill={METAL} stroke={LINE} strokeWidth="1.7" />
+      <path d="M55 -15q-28 13 -37 34" {...s} strokeWidth="2.5" />
+      <path d="M65 -15q28 13 37 34" {...s} strokeWidth="2.5" />
     </g>
   );
 }
