@@ -12,6 +12,8 @@ import {
 import { ApiError, get } from "@/lib/api";
 import { ago, krw } from "@/lib/format";
 import { Badge, toneForStatus } from "@/components/ui/badge";
+import { Mascot } from "@/components/mascot";
+import { STORES, type StoreType } from "@/lib/stores";
 import type { RiskReason } from "@/components/risk-badge";
 
 type ClaimSummary = {
@@ -71,6 +73,10 @@ function Inbox() {
     tabForStatus(params.get("status")),
   );
   const [claims, setClaims] = useState<ClaimSummary[]>([]);
+  // 매장 캐릭터와 기계 이상 말풍선. 홈이 이미 두 값을 다 계산해 준다 —
+  // 같은 판단을 화면마다 다시 하면 홈과 목록이 서로 다른 말을 하게 된다.
+  const [storeType, setStoreType] = useState<StoreType>("claw");
+  const [alert, setAlert] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -103,6 +109,26 @@ function Inbox() {
     [router, machineId],
   );
 
+  /*
+    매장 업종과 기계 이상 문구를 홈에서 가져온다.
+
+    같은 판단을 여기서 다시 하지 않는 이유: 몇 건부터 "이상" 인지는 도메인
+    지식이고 서버가 이미 정해 놓았다. 화면마다 따로 세면 홈은 알림을 띄우는데
+    목록은 조용한 상태가 생긴다. 실패는 무시한다 — 말풍선이 없다고 목록을
+    못 보면 안 된다.
+  */
+  useEffect(() => {
+    void get<{ storeType: string; actions: { kind: string; title: string; detail: string }[] }>(
+      "/api/admin/home",
+    )
+      .then((h) => {
+        if (h.storeType && h.storeType in STORES) setStoreType(h.storeType as StoreType);
+        const a = (h.actions ?? []).find((x) => x.kind === "machine_alert");
+        setAlert(a ? `${a.title}. ${a.detail}` : "");
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     void load(tab);
@@ -113,22 +139,36 @@ function Inbox() {
   }, [tab, load]);
 
   return (
-    <main className="mx-auto max-w-lg px-4 pt-6">
-      <h1 className="mb-4 text-xl font-bold">접수함</h1>
+    <main className="mx-auto max-w-lg px-3.5 pt-5">
+      <header className="mb-3 flex items-baseline justify-between gap-2">
+        <h1 className="text-xl font-extrabold">민원</h1>
+        <span className="text-[13px] text-ink-soft">30초마다 새로고침</span>
+      </header>
+
+      {/*
+        기계 이상 말풍선. 서버가 문장을 만들어 준다 — 몇 건부터 이상인지는
+        도메인 지식이고, 화면마다 다시 판단하면 홈과 다른 말을 하게 된다.
+      */}
+      {alert && (
+        <div className="mb-3 flex items-center gap-2.5 rounded-md border-2 border-ink bg-pink-soft px-3 py-2">
+          <Mascot store={storeType} mood="worried" size={34} className="shrink-0" />
+          <p className="text-[14px] font-semibold leading-snug">{alert}</p>
+        </div>
+      )}
 
       {/* 기계로 좁혀 들어오면 그 사실이 보여야 한다. 안 보이면 "왜 3건밖에
           없지" 하고 목록을 의심하게 된다. */}
       {machineId && (
-        <div className="mb-4 flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-sunken)] px-3.5 py-2.5 text-sm">
-          <span>기계 하나로 좁혀 보는 중입니다.</span>
-          <Link href="/admin/claims" className="font-semibold text-accent-600">
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-md border-2 border-ink bg-surface px-3 py-2 text-sm">
+          <span className="font-semibold">기계 하나로 좁혀 보는 중입니다.</span>
+          <Link href="/admin/claims" className="font-bold underline underline-offset-2">
             전체 보기
           </Link>
         </div>
       )}
 
-      <div className="-mx-4 mb-4 overflow-x-auto px-4">
-        <div className="flex gap-2">
+      <div className="-mx-3.5 mb-3 overflow-x-auto px-3.5">
+        <div className="flex gap-1.5">
           {TABS.map((t) => (
             <button
               key={t.key}
@@ -136,10 +176,8 @@ function Inbox() {
               onClick={() => setTab(t.key)}
               aria-pressed={tab === t.key}
               className={[
-                "h-9 shrink-0 rounded-full px-4 text-sm font-semibold transition-colors duration-150",
-                tab === t.key
-                  ? "bg-accent-600 text-white"
-                  : "bg-[var(--surface-sunken)] text-[var(--muted)]",
+                "h-[34px] shrink-0 rounded-md border-2 border-ink px-3 text-[14px] font-bold",
+                tab === t.key ? "bg-action text-ink" : "bg-surface text-ink-soft",
               ].join(" ")}
             >
               {t.label}
@@ -151,60 +189,55 @@ function Inbox() {
       {error && (
         <p
           role="alert"
-          className="rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+          className="rounded-md border-2 border-stop-600 bg-stop-50 p-3 text-sm font-semibold text-stop-700"
         >
           {error}
         </p>
       )}
 
       {loading ? (
-        <ul className="grid gap-2">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="surface h-24 animate-pulse" />
-          ))}
-        </ul>
+        <div className="h-40 animate-pulse rounded-md border-2 border-ink/15 bg-surface" />
       ) : claims.length === 0 ? (
-        <p className="py-16 text-center text-[var(--muted)]">
-          여기에 표시할 접수가 없습니다.
-        </p>
+        <div className="grid justify-items-center gap-2 rounded-md border-2 border-ink bg-surface px-4 py-10 text-center">
+          <Mascot store={storeType} mood="sleep" size={72} />
+          <p className="font-bold">여기에 표시할 민원이 없습니다.</p>
+        </div>
       ) : (
-        <ul className="grid gap-2">
+        /*
+          카드 목록이 아니라 한 카드 안의 줄 목록이다 (§6.2 ①).
+          하루 수십 번 훑는 화면이라 밀도가 먼저다 — 카드마다 그림자와
+          여백을 주면 한 화면에 세 건밖에 안 들어온다.
+        */
+        <ul className="divide-y divide-[#F2F0EC] overflow-hidden rounded-md border-2 border-ink bg-surface">
           {claims.map((c) => (
             <li key={c.id}>
               <Link
                 href={`/admin/claims/${c.id}`}
-                className="surface block p-3.5"
+                // 확인이 필요한 건은 바탕으로 구분한다. 배지만으로는
+                // 빠르게 훑을 때 눈에 안 들어온다.
+                className={`block px-3 py-2.5 ${
+                  c.status === "needs_review" ? "bg-[#FFFDF5]" : ""
+                }`}
               >
-                <div className="mb-1.5 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold">
-                      {c.machineLabel} · {c.issueLabel}
-                    </p>
-                    <p className="mt-0.5 text-sm text-[var(--muted)]">
-                      {c.phoneMasked} · {ago(c.createdAt)}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-base font-bold tabular-nums">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="truncate text-[15px] font-bold">
+                    {c.machineLabel} · {c.issueLabel}
+                  </p>
+                  <span className="shrink-0 text-[15px] font-bold tabular-nums">
                     {krw(c.amountKrw)}
                   </span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="mt-1 flex flex-wrap items-center gap-1">
                   <Badge tone={toneForStatus(c.status)}>{c.statusLabel}</Badge>
                   {/* 카드 건은 송금이 아니라 단말기 취소다. 목록에서 갈린다. */}
                   {c.paymentMethod === "card" && (
-                    <Badge
-                      tone="accent"
-                      icon={<CreditCard size={12} weight="regular" />}
-                    >
+                    <Badge tone="accent" icon={<CreditCard size={12} weight="regular" />}>
                       카드
                     </Badge>
                   )}
                   {c.riskReasons.length > 0 && (
-                    <Badge
-                      tone="warn"
-                      icon={<ShieldWarning size={12} weight="fill" />}
-                    >
+                    <Badge tone="warn" icon={<ShieldWarning size={12} weight="fill" />}>
                       확인 {c.riskReasons.length}건
                     </Badge>
                   )}
@@ -213,6 +246,9 @@ function Inbox() {
                       사진 {c.photoCount}
                     </Badge>
                   )}
+                  <span className="ml-auto shrink-0 text-[13px] text-ink-soft">
+                    {ago(c.createdAt)}
+                  </span>
                 </div>
               </Link>
             </li>

@@ -2,12 +2,20 @@ import type { ReactNode } from "react";
 
 export type Tone = "neutral" | "ok" | "warn" | "stop" | "accent";
 
+/*
+  v2 색 (docs/DESIGN-V2.md §4.1). 전부 바탕 대비 4.5:1 이상이다 —
+  사장님이 햇빛 아래 폰으로 본다.
+
+  accent 만 이름과 색이 어긋난다. v2 에서 청록을 쓰지 않기로 해서
+  pink-soft 로 바꿨는데, 이름을 바꾸면 호출처를 전부 고쳐야 한다.
+  "강조하되 상태는 아님" 이라는 뜻은 그대로다.
+*/
 const tones: Record<Tone, string> = {
-  neutral: "bg-[var(--surface-sunken)] text-[var(--muted)]",
-  ok: "bg-[var(--tone-ok-bg)] text-[var(--tone-ok-fg)]",
-  warn: "bg-[var(--tone-warn-bg)] text-[var(--tone-warn-fg)]",
-  stop: "bg-[var(--tone-stop-bg)] text-[var(--tone-stop-fg)]",
-  accent: "bg-[var(--tone-accent-bg)] text-[var(--tone-accent-fg)]",
+  neutral: "bg-paper-sunken text-ink-soft",
+  ok: "bg-ok-50 text-ok-700",
+  warn: "bg-warn-50 text-warn-700",
+  stop: "bg-stop-50 text-stop-700",
+  accent: "bg-pink-soft text-ink",
 };
 
 /**
@@ -28,8 +36,9 @@ export function Badge({
   return (
     <span
       className={[
-        "inline-flex items-center gap-1 rounded-md px-2 py-0.5",
-        "text-xs font-semibold whitespace-nowrap",
+        // 높이 20, 12/600 (§4.3)
+        "inline-flex h-5 items-center gap-1 rounded px-1.5",
+        "text-[12px] font-semibold whitespace-nowrap",
         tones[tone],
       ].join(" ")}
     >
