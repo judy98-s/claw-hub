@@ -154,27 +154,29 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
   const can = (s: string) => claim.allowedTransitions.includes(s);
 
   return (
-    <main className="mx-auto max-w-lg px-4 pb-8 pt-4">
+    // pb-40: 하단 고정 행동 바(높이 약 86 + safe-area)에 본문이 가리지 않게.
+    // 모자라면 마지막 줄을 영영 못 읽는데, 그게 처리 기록이라 눈치채기 어렵다.
+    <main className="mx-auto max-w-lg px-4 pb-40 pt-4">
       {!token && (
         <Link
           href="/admin/claims"
           className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--muted)]"
         >
-          <ArrowLeft size={16} weight="bold" /> 접수함
+          <ArrowLeft size={16} weight="bold" /> 민원
         </Link>
       )}
 
       <header className="mb-4 grid gap-2">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold">
+            <h1 className="text-xl font-extrabold">
               {claim.machineLabel} · {claim.issueLabel}
             </h1>
             <p className="mt-0.5 text-sm text-[var(--muted)]">
               접수번호 {claim.receiptCode} · {dateTime(claim.createdAt)}
             </p>
           </div>
-          <span className="shrink-0 text-2xl font-bold tabular-nums">
+          <span className="shrink-0 text-2xl font-extrabold tabular-nums">
             {krw(claim.amountKrw)}
           </span>
         </div>
@@ -193,7 +195,7 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
       {error && (
         <p
           role="alert"
-          className="mb-4 rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+          className="mb-4 rounded-md border-2 border-stop-600 bg-stop-50 p-3 text-sm font-semibold text-stop-700"
         >
           {error}
         </p>
@@ -315,44 +317,51 @@ function ClaimDetail({ params }: { params: Promise<{ id: string }> }) {
             </a>
           )}
 
-        {/* 처리 버튼 */}
-        <div className="grid gap-2">
-          {can("approved") && (
-            <Button
-              size="lg"
-              full
-              loading={busy}
-              onClick={() => void act("approve")}
-            >
-              승인
-            </Button>
-          )}
-          {claim.status === "approved" && (
-            <Button size="lg" full onClick={() => setPayoutOpen(true)}>
-              {claim.paymentMethod === "card"
-                ? "카드 결제 취소하기"
-                : "환불 보내기"}
-            </Button>
-          )}
-          {can("on_hold") && (
-            <Button
-              variant="secondary"
-              full
-              loading={busy}
-              onClick={() => void act("hold", "사장님 보류")}
-            >
-              나중에 보기 (보류)
-            </Button>
-          )}
-          {can("rejected") && (
-            <Button variant="ghost" full onClick={() => setConfirmReject(true)}>
-              거절
-            </Button>
-          )}
-        </div>
-
         <Timeline events={claim.events} />
       </div>
+
+      {/*
+        하단 고정 행동 바 (§6.2 ②).
+
+        버튼을 본문 끝에 두면 사진과 정보 줄을 다 지나 스크롤해야 누를 수
+        있다. 하루 수십 건을 처리하는 화면에서 그 스크롤이 전부 시간이다.
+
+        3열 2fr 1fr 1fr. 승인이 가장 넓고 노란색이다 — 대부분의 건은
+        승인으로 끝나고, 보류·거절은 예외다. 거절은 바탕이 아니라 글자로
+        경고한다. 빨간 버튼을 나란히 두면 승인보다 먼저 눈에 들어온다.
+      */}
+      {(can("approved") || claim.status === "approved") && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-30 border-t-2 border-ink bg-paper px-4 pt-3"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
+          <div className="mx-auto max-w-lg">
+            {claim.status === "approved" ? (
+              // 승인된 건은 남은 동작이 하나뿐이다. 나누지 않는다.
+              <Button size="lg" full onClick={() => setPayoutOpen(true)}>
+                {claim.paymentMethod === "card" ? "카드 결제 취소하기" : "환불 보내기"}
+              </Button>
+            ) : (
+              <div className="grid grid-cols-[2fr_1fr_1fr] gap-2">
+                <Button size="lg" loading={busy} onClick={() => void act("approve")}>
+                  승인
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  loading={busy}
+                  onClick={() => void act("hold", "사장님 보류")}
+                >
+                  보류
+                </Button>
+                <Button variant="danger" size="lg" onClick={() => setConfirmReject(true)}>
+                  거절
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 되돌릴 수 없는 동작은 확인을 거친다. */}
       {confirmReject && (
@@ -431,9 +440,7 @@ function Timeline({ events }: { events: ClaimDetail["events"] }) {
   if (events.length === 0) return null;
   return (
     <details className="surface p-3.5">
-      <summary className="cursor-pointer text-sm font-semibold">
-        처리 기록
-      </summary>
+      <summary className="cursor-pointer text-sm font-bold">처리 기록</summary>
       <ul className="mt-3 grid gap-2">
         {events.map((e, i) => (
           <li key={i} className="grid gap-0.5 text-sm">
