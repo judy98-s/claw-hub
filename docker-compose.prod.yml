@@ -1,0 +1,99 @@
+# 1GB 서버(VM.Standard.E2.1.Micro)용 구성.
+#
+#   docker compose -f docker-compose.prod.yml up -d
+#   또는  make prod-up
+#
+# docker-compose.yml 과 다른 점:
+#
+#   1. 빌드하지 않고 GHCR 이미지를 받는다. Next.js 빌드는 1.5GB 넘게 먹어서
+#      1GB 서버에서는 OOM 으로 죽는다. 빌드는 GitHub Actions 가 한다.
+#   2. Redis 를 띄우지 않는다. REDIS_URL 을 비우면 인메모리로 폴백한다.
+#      레이트리밋과 멱등성 캐시만 쓰고, 멱등성의 실제 방어선은 DB 의
+#      UNIQUE 제약이므로 단일 서버에서는 잃을 것이 없다. 메모리를 아낀다.
+#   3. Postgres 를 1GB 에 맞춰 낮춘다. 기본값은 더 큰 장비를 전제한다.
+#
+# ARM(2 OCPU/12GB)으로 옮기면 docker-compose.yml 을 쓰면 된다. 그때는
+# 워크플로를 linux/arm64 까지 빌드하도록 한 번 돌려야 한다.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS 를 .env 에 설정하세요}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, web]
+
+  api:
+    image: ghcr.io/judy98-s/claw-hub/api:latest
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://clawhub:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}@postgres:5432/clawhub?sslmode=disable
+      # 빈 값이면 인메모리 캐시를 쓴다. env_file 의 값을 확실히 덮는다.
+      REDIS_URL: ""
+      MEDIA_DIR: /data/photos
+      ADDR: ":8080"
+    volumes: ["media:/data"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  worker:
+    image: ghcr.io/judy98-s/claw-hub/api:latest
+    entrypoint: ["/worker"]
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://clawhub:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}@postgres:5432/clawhub?sslmode=disable
+      REDIS_URL: ""
+      MEDIA_DIR: /data/photos
+    volumes: ["media:/data"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  web:
+    image: ghcr.io/judy98-s/claw-hub/web:latest
+    restart: unless-stopped
+    environment:
+      ANDROID_PACKAGE_NAME: ${ANDROID_PACKAGE_NAME:-}
+      ANDROID_SHA256_FINGERPRINTS: ${ANDROID_SHA256_FINGERPRINTS:-}
+    depends_on: [api]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clawhub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}
+      POSTGRES_DB: clawhub
+    # 1GB 장비용. 기본값(shared_buffers 128MB, max_connections 100)은
+    # 더 큰 장비를 전제하고, 1GB 에서는 다른 컨테이너와 부딪힌다.
+    # 한 매장이 쓰는 부하에는 이 값으로 충분하다.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - max_connections=40
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clawhub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  media:
+  caddy_data:
+  caddy_config:

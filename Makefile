@@ -18,10 +18,17 @@ help:
 	@echo "  make test-integration  통합 테스트 (postgres 필요)"
 	@echo "  make check             fmt + vet + 전체 테스트"
 	@echo ""
-	@echo "배포"
+	@echo "배포 — 로컬/큰 서버 (서버에서 빌드)"
 	@echo "  make up                전체 스택 기동 (docker compose)"
 	@echo "  make down              전체 스택 종료"
 	@echo "  make logs              로그 보기"
+	@echo ""
+	@echo "배포 — 1GB 서버 (GHCR 이미지를 받아 실행, 빌드 안 함)"
+	@echo "  make prod-up           이미지 받고 기동"
+	@echo "  make prod-pull         이미지만 갱신"
+	@echo "  make prod-logs         로그 보기"
+	@echo "  make prod-ps           컨테이너 상태"
+	@echo "  make prod-down         종료"
 
 keys:
 	@echo "DATA_ENCRYPTION_KEY=$$(openssl rand -base64 32)"
@@ -91,3 +98,26 @@ down:
 
 logs:
 	docker compose logs -f --tail=100
+
+# ── 1GB 서버(E2.1.Micro) 배포 ────────────────────────────────────────
+# 서버에서 빌드하지 않는다. Next.js 빌드가 1.5GB 넘게 먹어서 OOM 으로
+# 죽는다. GitHub Actions 가 만든 GHCR 이미지를 받아 쓴다.
+PROD := docker compose -f docker-compose.prod.yml
+
+prod-up:
+	$(PROD) pull
+	$(PROD) up -d
+	@echo
+	@echo "기동했다. 로그: make prod-logs"
+
+prod-pull:
+	$(PROD) pull
+
+prod-down:
+	$(PROD) down
+
+prod-logs:
+	$(PROD) logs -f --tail=100
+
+prod-ps:
+	$(PROD) ps

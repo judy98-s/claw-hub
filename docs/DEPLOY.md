@@ -33,6 +33,44 @@ Postgres 단일 인스턴스 여력의 백만 분의 일이라 트래픽으로 �
 | **홈 리전** | 가입할 때 한 번 고르면 **못 바꾼다.** 바꾸려면 계정을 새로 만들어야 한다. 그리고 Always Free 자원은 **홈 리전에서만** 만들 수 있다 |
 | **Out of host capacity** | 무료 ARM 은 수요가 많아 생성이 자주 실패한다. 계정 문제가 아니라 그 순간 재고가 없는 것이다 |
 
+### 0-0. 스크립트로 한 번에 — 권장
+
+아래 §0-1 ~ §0-9 는 콘솔을 클릭해서 하는 절차다. 클릭으로 하면 세 군데에서
+막히기 쉽다 (private 서브넷, Ampere 탭, 임시 IP). **스크립트는 그 셋을 아예
+지나가지 않는다.**
+
+가입(§0-1)만 끝났으면 나머지는 한 줄이다. 콘솔 우측 상단의 **`>_`**
+(Cloud Shell) 을 열고:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/judy98-s/claw-hub/claude/nifty-cori-joc5pd/scripts/oci-provision.sh -o oci-provision.sh
+less oci-provision.sh      # 무엇을 만드는지 읽어본다. q 로 나온다
+bash oci-provision.sh
+```
+
+Cloud Shell 은 이미 내 계정으로 인증되어 있어서 API 키를 만들 필요가 없다.
+스크립트가 VCN·인터넷 게이트웨이·라우트·보안규칙·public 서브넷·인스턴스를
+만들고, cloud-init 으로 스왑·OS 방화벽·Docker 까지 설치한다. 여러 번 돌려도
+되고 이미 있는 것은 건너뛴다.
+
+기본은 **E2.1.Micro (1 OCPU / 1GB, AMD)** 다. ARM 을 쓰려면:
+
+```bash
+SHAPE=arm bash oci-provision.sh    # A1.Flex 2 OCPU / 12GB
+```
+
+> **왜 기본이 micro 인가.** ARM 이 사양은 훨씬 좋지만 **재고가 거의 없다.**
+> 도쿄 리전은 가용 도메인이 하나뿐이라 오라클이 권하는 "다른 AD 로
+> 시도" 도 쓸 수 없고, Always Free 는 홈 리전에서만 되므로 리전을 옮기는
+> 것도 답이 아니다. E2.1.Micro 는 재고가 거의 항상 있다.
+>
+> **1GB 로도 돌아간다.** Redis 를 띄우지 않고(인메모리 폴백), Postgres 를
+> 낮추고, 스왑 2GB 를 두면 합계 약 500MB 다. 다만 **서버에서 빌드하면
+> 안 된다** — Next.js 빌드가 1.5GB 넘게 먹는다. §4 의 `make prod-up` 으로
+> GHCR 이미지를 받아 쓴다.
+
+콘솔 클릭으로 하고 싶거나 스크립트가 막히면 §0-1 부터 읽는다.
+
 ### 0-1. 가입
 
 <https://www.oracle.com/cloud/free/> → **Start for free**
@@ -430,10 +468,42 @@ echo 'SITE_ADDRESS=claw.example.com' >> .env
 
 ## 4. 기동
 
+메모리가 2GB 이상이면 서버에서 빌드해도 된다:
+
 ```bash
 make up
 make logs
 ```
+
+**1GB 서버(E2.1.Micro)에서는 빌드하지 않는다.** Next.js 빌드가 1.5GB 넘게
+먹어서 OOM 으로 죽는다. GitHub Actions 가 만든 GHCR 이미지를 받아 쓴다:
+
+```bash
+make prod-up      # 이미지 받고 기동
+make prod-logs
+```
+
+`docker-compose.prod.yml` 이 `docker-compose.yml` 과 다른 점:
+
+| | 이유 |
+|---|---|
+| 빌드 대신 GHCR 이미지 | 1GB 에서 Next.js 빌드가 OOM 으로 죽는다 |
+| Redis 를 띄우지 않음 | `REDIS_URL` 이 비면 인메모리로 폴백한다. 멱등성의 실제 방어선은 DB 의 UNIQUE 제약이므로 단일 서버에서는 잃을 것이 없다 |
+| Postgres 를 낮춤 | 기본값(shared_buffers 128MB, max_connections 100)은 더 큰 장비를 전제한다 |
+
+코드를 고친 뒤 배포하는 흐름:
+
+```bash
+# 내 PC 에서 — 푸시하면 Actions 가 이미지를 빌드해 GHCR 에 올린다
+git push
+
+# 서버에서 — 빌드가 끝난 뒤
+make prod-up
+```
+
+ARM(2 OCPU/12GB)으로 옮기면 `make up` 을 쓰면 된다. GHCR 이미지를 그대로
+쓰려면 Actions 를 **linux/arm64 까지 빌드하도록 한 번 수동 실행**해야 한다
+(GitHub → Actions → 이미지 빌드 → Run workflow → `linux/amd64,linux/arm64`).
 
 마이그레이션은 api 컨테이너가 뜰 때 자동으로 적용된다.
 
