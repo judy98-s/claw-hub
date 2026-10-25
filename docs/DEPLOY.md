@@ -326,14 +326,44 @@ cd claw-hub
 ## 2. 비밀값 생성
 
 ```bash
-make keys
+cp .env.example .env
 ```
 
-출력된 네 줄을 `.env` 에 붙여넣는다.
+`make keys` 가 네 줄을 출력하므로 그것을 붙여넣어도 되지만, **서버에서는
+`make` 에 의존하지 않는다.** Ubuntu 클라우드 이미지에는 `make` 가 없어서
+`make keys >> .env` 가 `command not found` 로 실패하고, 그러면 `.env` 가
+조용히 빈 채로 남아 기동이 거부된다. `openssl` 로 직접 넣는다:
 
 ```bash
-cp .env.example .env
-$EDITOR .env
+# 중복이 생기지 않게 기존 줄을 먼저 지운다
+sed -i -e '/^DATA_ENCRYPTION_KEY=/d' -e '/^HASH_PEPPER=/d' \
+       -e '/^SESSION_SECRET=/d'      -e '/^POSTGRES_PASSWORD=/d' \
+       -e '/^PUBLIC_BASE_URL=/d' .env
+{
+  echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)"
+  echo "HASH_PEPPER=$(openssl rand -base64 32)"
+  echo "SESSION_SECRET=$(openssl rand -base64 32)"
+  echo "POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')"
+} >> .env
+```
+
+값은 보지 않고 채워졌는지만 확인한다:
+
+```bash
+for k in DATA_ENCRYPTION_KEY HASH_PEPPER SESSION_SECRET \
+         POSTGRES_PASSWORD SITE_ADDRESS PUBLIC_BASE_URL; do
+  v=$(grep -m1 "^$k=" .env | cut -d= -f2-)
+  [ -n "$v" ] && echo "  $k  OK" || echo "  $k  비어있음 <<<"
+done
+```
+
+`SITE_ADDRESS` 와 `PUBLIC_BASE_URL` 은 §3 에서 넣는다.
+
+Makefile 타깃(`make prod-up` 등)을 쓰려면 `make` 를 설치한다. `oci-provision.sh`
+는 cloud-init 으로 자동 설치하지만, 손으로 만든 서버라면:
+
+```bash
+sudo apt-get update -qq && sudo apt-get install -y -qq make
 ```
 
 `.env` 는 api·worker·setup 이 실행될 때 **자동으로 읽는다.** 따로 `export`

@@ -34,6 +34,7 @@
 #   - 스왑 2GB
 #   - OS 방화벽에 80/443 허용 (오라클은 VCN 과 OS 두 군데에 방화벽이 있다)
 #   - Docker 설치 + ubuntu 사용자를 docker 그룹에
+#   - make 설치 (Ubuntu 클라우드 이미지에는 없다)
 #
 # 만들지 않는 것 (콘솔 마법사는 만든다):
 #   - NAT 게이트웨이, 서비스 게이트웨이, private 서브넷. 이 구성에 필요가
@@ -132,7 +133,7 @@ fi
 # 부팅할 때 한 번 돌아간다. 여기서 해 두면 SSH 로 들어가 손으로 할 일이
 # 줄고, 특히 OS 방화벽을 빼먹는 실수를 막는다 — 오라클은 VCN 과 OS 두
 # 군데에 방화벽이 있어서 한 군데만 열고 왜 안 되는지 찾는 일이 흔하다.
-say "cloud-init (스왑 ${SWAP_GB}GB + 방화벽 + Docker)"
+say "cloud-init (스왑 ${SWAP_GB}GB + 방화벽 + Docker + make)"
 USER_DATA=$(mktemp)
 cat > "$USER_DATA" <<CLOUDINIT
 #cloud-config
@@ -153,6 +154,9 @@ runcmd:
   - [ sh, -c, "netfilter-persistent save" ]
   - [ sh, -c, "curl -fsSL https://get.docker.com | sh" ]
   - [ sh, -c, "usermod -aG docker ubuntu" ]
+  # Ubuntu 클라우드 이미지에는 make 가 없다. Makefile 타깃(make keys,
+  # make prod-up)이 전부 안 돌아서 .env 가 빈 채로 남는다.
+  - [ sh, -c, "DEBIAN_FRONTEND=noninteractive apt-get install -y make" ]
   - [ sh, -c, "echo clawhub-cloudinit-done > /var/log/clawhub-ready" ]
 CLOUDINIT
 ok "준비했다"
@@ -359,6 +363,7 @@ cat <<EOF
 
    cat /var/log/clawhub-ready     # clawhub-cloudinit-done 이 나오면 완료
    docker --version               # 안 되면 아직이다. 1분 뒤 다시
+   make --version                 # Makefile 타깃을 쓰려면 필요하다
    free -h                        # Swap 에 ${SWAP_GB}.0Gi 가 보여야 한다
 
  아직이면 1~2분 기다린다. 5분 넘게 안 되면 진행 상황을 본다:
@@ -371,17 +376,33 @@ cat <<EOF
    git clone https://github.com/judy98-s/claw-hub.git && cd claw-hub
    git checkout claude/nifty-cori-joc5pd
    cp .env.example .env
-   make keys >> .env
-   echo 'SITE_ADDRESS=$NIP'            >> .env
-   echo 'PUBLIC_BASE_URL=https://$NIP' >> .env
 
- 그리고 .env 에서 **값이 비어 있는 원래 줄들**을 지운다. 안 지우면 빈 값이
- 이겨서 서버가 기동을 거부한다:
+ 비밀값은 make 가 아니라 openssl 로 직접 넣는다 — make 설치가 아직 안
+ 끝났을 수 있고, 실패하면 .env 가 조용히 빈 채로 남는다. 중복이 생기지
+ 않게 기존 줄을 먼저 지운다:
 
-   nano .env
-   # DATA_ENCRYPTION_KEY=   HASH_PEPPER=   SESSION_SECRET=
-   # PUBLIC_BASE_URL=http://localhost:3000
-   # -> 이 네 줄을 삭제 (뒤에 붙은 값이 있는 줄은 남긴다)
+   sed -i -e '/^DATA_ENCRYPTION_KEY=/d' -e '/^HASH_PEPPER=/d' \\
+          -e '/^SESSION_SECRET=/d'      -e '/^POSTGRES_PASSWORD=/d' \\
+          -e '/^PUBLIC_BASE_URL=/d' .env
+   {
+     echo "DATA_ENCRYPTION_KEY=\$(openssl rand -base64 32)"
+     echo "HASH_PEPPER=\$(openssl rand -base64 32)"
+     echo "SESSION_SECRET=\$(openssl rand -base64 32)"
+     echo "POSTGRES_PASSWORD=\$(openssl rand -base64 24 | tr -d '/+=')"
+     echo "SITE_ADDRESS=$NIP"
+     echo "PUBLIC_BASE_URL=https://$NIP"
+   } >> .env
+
+ 값은 보지 않고 채워졌는지만 확인한다:
+
+   for k in DATA_ENCRYPTION_KEY HASH_PEPPER SESSION_SECRET \\
+            POSTGRES_PASSWORD SITE_ADDRESS PUBLIC_BASE_URL; do
+     v=\$(grep -m1 "^\$k=" .env | cut -d= -f2-)
+     [ -n "\$v" ] && echo "  \$k  OK" || echo "  \$k  비어있음 <<<"
+   done
+
+ **DATA_ENCRYPTION_KEY 와 HASH_PEPPER 를 잃으면 계좌·전화번호를 영구히
+ 복구할 수 없다.** 비밀번호 관리자에 따로 보관한다.
 
  ── 3. 기동 ─────────────────────────────────────────────────────────
 
