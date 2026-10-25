@@ -389,9 +389,14 @@ cat <<EOF
      echo "HASH_PEPPER=\$(openssl rand -base64 32)"
      echo "SESSION_SECRET=\$(openssl rand -base64 32)"
      echo "POSTGRES_PASSWORD=\$(openssl rand -base64 24 | tr -d '/+=')"
-     echo "SITE_ADDRESS=$NIP"
-     echo "PUBLIC_BASE_URL=https://$NIP"
    } >> .env
+
+ 주소 두 줄은 스크립트로 넣는다. 손으로 curl 해서 변수에 담으면, curl 이
+ 실패했을 때 빈 값이 그대로 들어가 SITE_ADDRESS=.nip.io 가 된다. Caddy 가
+ 유효하지 않은 주소로 재시작만 반복하고 원인은 보이지 않는다:
+
+   bash scripts/set-site-address.sh
+   # 자동으로 못 찾으면:  bash scripts/set-site-address.sh $PUBLIC_IP
 
  값은 보지 않고 채워졌는지만 확인한다:
 

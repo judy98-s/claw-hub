@@ -412,10 +412,22 @@ sudo apt-get update -qq && sudo apt-get install -y -qq make
 Caddy 설정은 도메인을 산 것과 똑같다.
 
 ```bash
-# 오라클 인스턴스 공인 IP 가 152.67.89.123 이라면
-echo 'SITE_ADDRESS=152-67-89-123.nip.io' >> .env
-echo 'PUBLIC_BASE_URL=https://152-67-89-123.nip.io' >> .env
-make up
+bash scripts/set-site-address.sh
+# 자동으로 못 찾으면 콘솔의 Public IP Address 를 직접 넘긴다
+bash scripts/set-site-address.sh 152.67.89.123
+```
+
+**직접 `echo` 로 넣지 않는다.** IP 를 `curl` 로 받아 변수에 담는 방식은,
+그 `curl` 이 실패하면 빈 값이 그대로 들어가 `SITE_ADDRESS=.nip.io` 가
+된다. Caddy 는 유효하지 않은 주소로 재시작만 반복하고, 원인은 `.env` 를
+열어 보기 전까지 드러나지 않는다. 스크립트는 IP 형식과 사설 대역을
+검증하고, 통과하지 못하면 `.env` 를 건드리지 않는다.
+
+적용:
+
+```bash
+make prod-up        # 1GB 서버
+make up             # 2GB 이상
 ```
 
 알아둘 것:
