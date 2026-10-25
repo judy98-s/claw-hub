@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  CheckCircle,
   Clock,
   GameController,
   GearSix,
@@ -14,6 +13,8 @@ import {
 } from "@phosphor-icons/react";
 
 import { ApiError, get } from "@/lib/api";
+import { Mascot } from "@/components/mascot";
+import { STORES, type StoreType } from "@/lib/stores";
 import { krw } from "@/lib/format";
 
 type HomeAction = {
@@ -27,6 +28,7 @@ type HomeAction = {
 
 type Home = {
   storeName: string;
+  storeType: string;
   actions: HomeAction[];
   todayClaims: number;
   todayPaid: number;
@@ -47,9 +49,9 @@ const ICONS: Record<string, typeof Warning> = {
 };
 
 const SEVERITY: Record<HomeAction["severity"], string> = {
-  stop: "bg-[var(--tone-stop-bg)] text-[var(--tone-stop-fg)]",
-  warn: "bg-[var(--tone-warn-bg)] text-[var(--tone-warn-fg)]",
-  neutral: "bg-[var(--surface-sunken)] text-[var(--muted)]",
+  stop: "bg-stop-50 text-stop-700",
+  warn: "bg-warn-50 text-warn-700",
+  neutral: "bg-paper-sunken text-ink-soft",
 };
 
 const POLL_MS = 30_000;
@@ -67,6 +69,9 @@ const POLL_MS = 30_000;
 export default function HomePage() {
   const router = useRouter();
   const [home, setHome] = useState<Home | null>(null);
+  // 모르는 업종이 와도 화면이 깨지지 않게 인형뽑기로 떨어뜨린다.
+  const storeType: StoreType =
+    home?.storeType && home.storeType in STORES ? (home.storeType as StoreType) : "claw";
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -91,14 +96,13 @@ export default function HomePage() {
   return (
     <main className="mx-auto max-w-2xl px-4 pt-6">
       <header className="mb-5">
-        <p className="text-sm text-[var(--muted)]">{home?.storeName ?? " "}</p>
-        <h1 className="text-xl font-bold">확인이 필요한 것</h1>
+        <h1 className="text-xl font-extrabold">확인이 필요한 것</h1>
       </header>
 
       {error && (
         <p
           role="alert"
-          className="mb-4 rounded-lg bg-[var(--tone-stop-bg)] p-3 text-sm text-[var(--tone-stop-fg)]"
+          className="mb-4 rounded-md border-2 border-stop-600 bg-stop-50 p-3 text-sm font-semibold text-stop-700"
         >
           {error}
         </p>
@@ -107,15 +111,17 @@ export default function HomePage() {
       {!home ? (
         <ul className="grid gap-2">
           {[0, 1].map((i) => (
-            <li key={i} className="surface h-20 animate-pulse" />
+            <li key={i} className="h-20 animate-pulse rounded-md border-2 border-ink/15 bg-surface" />
           ))}
         </ul>
       ) : home.actions.length === 0 ? (
-        <div className="surface grid justify-items-center gap-2 px-4 py-12 text-center">
-          <CheckCircle size={40} weight="fill" className="text-ok-600" />
-          <p className="font-semibold">지금 처리할 게 없습니다</p>
-          <p className="text-sm text-[var(--muted)]">
-            새 신고가 들어오면 Slack 알림이 가고 여기에도 올라옵니다.
+        <div className="grid justify-items-center gap-2 rounded-md border-2 border-ink bg-surface px-4 py-10 text-center">
+          {/* 빈 상태의 캐릭터는 sleep 이다 (§5.2). 할 일이 없다는 걸
+              체크 아이콘보다 빠르게 말한다. */}
+          <Mascot store={storeType} mood="sleep" size={76} />
+          <p className="font-extrabold">지금 처리할 게 없습니다</p>
+          <p className="text-sm text-ink-soft">
+            새 신고가 들어오면 알림이 가고 여기에도 올라옵니다.
           </p>
         </div>
       ) : (
@@ -126,23 +132,23 @@ export default function HomePage() {
               <li key={a.kind + a.href}>
                 <Link
                   href={a.href}
-                  className="surface flex items-center gap-3.5 p-3.5 transition-colors duration-150 hover:bg-[var(--surface-sunken)]"
+                  className="flex items-center gap-3.5 rounded-md border-2 border-ink bg-surface p-3.5 shadow-[3px_3px_0_#16130F] transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#16130F]"
                 >
                   <span
-                    className={`grid size-10 shrink-0 place-items-center rounded-lg ${SEVERITY[a.severity]}`}
+                    className={`grid size-10 shrink-0 place-items-center rounded-md border-2 border-ink ${SEVERITY[a.severity]}`}
                   >
                     <Icon size={20} weight="fill" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block font-semibold">{a.title}</span>
-                    <span className="mt-0.5 block text-sm text-[var(--muted)]">
+                    <span className="block font-extrabold">{a.title}</span>
+                    <span className="mt-0.5 block text-sm text-ink-soft">
                       {a.detail}
                     </span>
                   </span>
                   <ArrowRight
                     size={18}
                     weight="bold"
-                    className="shrink-0 text-[var(--muted)]"
+                    className="shrink-0 text-ink-soft"
                   />
                 </Link>
               </li>
@@ -153,8 +159,8 @@ export default function HomePage() {
 
       {/* 오늘 숫자는 할 일 아래다. 읽으면 좋지만 누구도 이걸 보러 오지 않는다. */}
       <section className="mt-6">
-        <h2 className="mb-2 text-sm font-semibold text-[var(--muted)]">오늘</h2>
-        <dl className="surface grid grid-cols-3 divide-x divide-[var(--line)]">
+        <h2 className="mb-2 text-sm font-bold text-ink-soft">오늘</h2>
+        <dl className="grid grid-cols-3 divide-x-2 divide-ink rounded-md border-2 border-ink bg-surface">
           <Stat label="접수" value={`${home?.todayClaims ?? 0}건`} />
           <Stat label="환불" value={`${home?.todayPaid ?? 0}건`} />
           <Stat label="나간 금액" value={krw(home?.todayPaidKrw ?? 0)} />
@@ -167,8 +173,8 @@ export default function HomePage() {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-0.5 px-3 py-3.5">
-      <dt className="text-xs text-[var(--muted)]">{label}</dt>
-      <dd className="text-lg font-bold tabular-nums">{value}</dd>
+      <dt className="text-xs font-semibold text-ink-soft">{label}</dt>
+      <dd className="text-lg font-extrabold tabular-nums">{value}</dd>
     </div>
   );
 }

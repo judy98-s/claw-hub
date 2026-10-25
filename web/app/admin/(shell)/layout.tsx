@@ -20,12 +20,12 @@ export default function ShellLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-[100dvh]">
+    <div className="min-h-[100dvh] bg-paper text-ink">
       <NavSidebar />
-      {/* 폰에서는 상단 바(3.5rem) 아래, 데스크톱에서는 메뉴(15rem) 오른쪽.
+      {/* 폰에서는 상단 바(52px) 아래, 데스크톱에서는 메뉴(15rem) 오른쪽.
           넓은 화면에서 본문을 가운데로 띄우면 메뉴와 내용 사이에 빈 띠가
           생긴다. 왼쪽에 붙여서 눈이 메뉴 옆에서 이어지게 한다. */}
-      <div className="pt-14 lg:pl-60 lg:pt-0">
+      <div className="pt-[52px] lg:pl-60 lg:pt-0">
         <div className="mx-auto w-full max-w-3xl lg:mx-0">{children}</div>
       </div>
     </div>

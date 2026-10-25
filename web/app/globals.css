@@ -166,8 +166,19 @@ body {
   --tone-accent-fg: #5eead4;
 }
 
-* {
-  border-color: var(--line);
+/*
+  테두리 기본색.
+
+  @layer base 안에 두는 이유는 포커스 링과 같다. 레이어 밖의 `*` 규칙은
+  Tailwind 유틸리티를 이기기 때문에, border-ink 를 줘도 이 값이 이긴다.
+  v2 의 굵은 먹선이 전부 회색(ink-200)으로 나오는데 그림자만 검정이라
+  카드가 흐릿해 보였다. base 로 내리면 명시한 색이 이기고, 색을 안 준
+  곳은 여전히 이 기본값을 받는다.
+*/
+@layer base {
+  * {
+    border-color: var(--line);
+  }
 }
 
 html {

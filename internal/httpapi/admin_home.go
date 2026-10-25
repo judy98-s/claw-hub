@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/judy98-s/claw-hub/internal/domain"
 	"github.com/judy98-s/claw-hub/internal/store"
 )
 
@@ -23,7 +24,11 @@ type homeAction struct {
 }
 
 type homeResponse struct {
-	StoreName string       `json:"storeName"`
+	StoreName string `json:"storeName"`
+	// StoreType은 상단 바의 매장 캐릭터를 고른다. 홈에 같이 싣는 이유는
+	// 메뉴가 어차피 홈을 1분마다 부르기 때문이다 — 요청을 하나 더 만들
+	// 이유가 없다.
+	StoreType string       `json:"storeType"`
 	Actions   []homeAction `json:"actions"`
 
 	TodayClaims  int `json:"todayClaims"`
@@ -61,6 +66,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 	if st, err := s.store.StoreByID(r.Context(), u.StoreID); err == nil {
 		res.StoreName = st.Name
+		res.StoreType = string(domain.NormalizeStoreType(string(st.Type)))
 		// 송금 앱을 안 골랐으면 승인해도 계좌 복사밖에 못 한다.
 		// 처음 한 번 알려주지 않으면 사장님은 그게 설정인 줄 모른다.
 		if st.PayoutProvider == "" || st.PayoutProvider == "none" {
