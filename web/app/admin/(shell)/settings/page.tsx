@@ -6,6 +6,7 @@ import { Plus, SignOut } from "@phosphor-icons/react";
 
 import { ApiError, get, patch, post } from "@/lib/api";
 import { phone as fmtPhone } from "@/lib/format";
+import { STORES } from "@/lib/stores";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
@@ -26,6 +27,7 @@ type StoreInfo = {
   regionDetail: string;
   bizNo: string;
   canPostListing: boolean;
+  storeType: string;
 };
 
 type Region = { code: string; name: string };
@@ -252,10 +254,12 @@ function StoreSettings({
   const [regionCode, setRegionCode] = useState(shop.regionCode);
   const [regionDetail, setRegionDetail] = useState(shop.regionDetail);
   const [bizNo, setBizNo] = useState(shop.bizNo);
+  const [storeType, setStoreType] = useState(shop.storeType || "claw");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const dirty =
+    storeType !== shop.storeType ||
     name !== shop.name ||
     phone !== fmtPhone(shop.phone) ||
     regionCode !== shop.regionCode ||
@@ -269,6 +273,7 @@ function StoreSettings({
       const s = await patch<StoreInfo>("/api/admin/store", {
         name,
         phone,
+        storeType,
         regionCode,
         regionDetail,
         bizNo,
@@ -307,6 +312,28 @@ function StoreSettings({
             onChange={(e) => setPhone(e.target.value)}
             placeholder="02-1234-5678"
           />
+        </Field>
+
+        {/*
+          업종을 바꾸면 손님 화면이 통째로 바뀐다 — 캐릭터, 증상 목록,
+          빠른 금액 버튼, QR 스티커 문구. 가입할 때 잘못 고른 사장님이
+          되돌릴 길이 여기밖에 없다.
+        */}
+        <Field
+          label="업종"
+          hint="손님 신고 화면의 캐릭터·증상 목록·빠른 금액이 업종에 따라 바뀝니다."
+        >
+          <select
+            value={storeType}
+            onChange={(e) => setStoreType(e.target.value)}
+            className="h-11 w-full rounded-md border-2 border-ink bg-surface px-3"
+          >
+            {Object.entries(STORES).map(([key, cfg]) => (
+              <option key={key} value={key}>
+                {cfg.label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <hr className="border-[var(--line)]" />

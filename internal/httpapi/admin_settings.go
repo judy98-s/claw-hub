@@ -73,6 +73,10 @@ type storeResponse struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Phone string `json:"phone"`
+	// StoreType 은 업종이다. 설정 화면에서 바꿀 수 있어야 한다 —
+	// 가입할 때 잘못 고른 사장님이 되돌릴 방법이 없으면 매장을 새로
+	// 만들게 되고, 기계와 민원이 첫 매장에 남는다.
+	StoreType string `json:"storeType"`
 
 	// 장터 설정. 둘 다 채워야 글을 쓸 수 있다.
 	RegionCode   string `json:"regionCode"`
@@ -86,6 +90,7 @@ type storeResponse struct {
 func toStoreResponse(d store.StoreDetail) storeResponse {
 	return storeResponse{
 		ID: d.ID, Name: d.Name, Phone: d.Phone,
+		StoreType:  string(domain.NormalizeStoreType(string(d.Type))),
 		RegionCode: d.RegionCode, RegionDetail: d.RegionDetail,
 		// 화면에는 000-00-00000 으로 보여준다. DB에는 숫자만 있다.
 		BizNo:          domain.FormatBizNo(d.BizNo),
@@ -113,6 +118,9 @@ func (s *Server) handleUpdateStore(w http.ResponseWriter, r *http.Request) {
 		RegionCode   string `json:"regionCode"`
 		RegionDetail string `json:"regionDetail"`
 		BizNo        string `json:"bizNo"`
+		// StoreType 은 선택이다. 빈 문자열이면 바꾸지 않는다 — 장터
+		// 설정만 고치는 요청이 업종을 덮어쓰면 안 된다.
+		StoreType string `json:"storeType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		badRequest(w, "요청 형식이 올바르지 않습니다.")
@@ -135,6 +143,17 @@ func (s *Server) handleUpdateStore(w http.ResponseWriter, r *http.Request) {
 	// 장터 설정 셋은 모두 선택이다. 비워두면 장터를 안 쓰는 매장이고,
 	// 그건 정상이다. 다만 적었으면 맞아야 한다.
 	profile := store.StoreProfile{Name: name, Phone: digits}
+
+	// 업종을 바꾸면 손님 화면이 통째로 바뀐다 — 캐릭터·증상 목록·빠른
+	// 금액·스티커 문구. 오타를 조용히 기본값으로 떨어뜨리면 왜 다른
+	// 캐릭터가 나오는지 찾기 어렵다. setup 의 -type 과 같은 규칙이다.
+	if t := strings.TrimSpace(req.StoreType); t != "" {
+		if !domain.ValidStoreType(t) {
+			badRequest(w, "업종이 올바르지 않습니다.")
+			return
+		}
+		profile.Type = domain.StoreType(t)
+	}
 
 	if code := strings.TrimSpace(req.RegionCode); code != "" {
 		if _, ok := domain.RegionByCode(code); !ok {

@@ -6,6 +6,7 @@ import { Plus, QrCode, Wrench } from "@phosphor-icons/react";
 
 import { ApiError, get, post } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { STORES, type StoreType } from "@/lib/stores";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { QrSheet } from "./qr-sheet";
@@ -33,6 +34,8 @@ export default function MachinesPage() {
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [qrFor, setQrFor] = useState<Machine | null>(null);
+  // 스티커 바탕색과 캐릭터가 업종으로 갈린다. 홈에서 이미 내려주는 값이다.
+  const [storeType, setStoreType] = useState<StoreType>("claw");
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +50,15 @@ export default function MachinesPage() {
       setError(err instanceof ApiError ? err.message : "불러오지 못했습니다.");
     }
   }, [router]);
+
+  useEffect(() => {
+    get<{ storeType?: string }>("/api/admin/home")
+      .then((h) => {
+        if (h.storeType && h.storeType in STORES) setStoreType(h.storeType as StoreType);
+      })
+      // 업종을 못 읽어도 화면은 떠야 한다. 인형뽑기로 그린다.
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     void load();
@@ -155,7 +167,7 @@ export default function MachinesPage() {
         </ul>
       )}
 
-      {qrFor && <QrSheet machine={qrFor} onClose={() => setQrFor(null)} />}
+      {qrFor && <QrSheet machine={qrFor} storeType={storeType} onClose={() => setQrFor(null)} />}
     </main>
   );
 }
@@ -168,6 +180,10 @@ export default function MachinesPage() {
  */
 function Sparkline({ values }: { values: number[] }) {
   const max = Math.max(1, ...values);
+  // 하루 3건 이상이면 stop 색. 주간 합계가 같아도 하루에 몰린 날은
+  // 기계 고장이고, 흩어진 주는 그냥 바쁜 주다. 막대가 같은 색이면
+  // 그 둘을 구분할 수 없다.
+  const BUSY_DAY = 3;
   return (
     <div
       className="flex h-8 shrink-0 items-end gap-0.5"
@@ -177,7 +193,9 @@ function Sparkline({ values }: { values: number[] }) {
       {values.map((v, i) => (
         <span
           key={i}
-          className={`w-1.5 rounded-sm ${v > 0 ? "bg-pink" : "bg-[var(--surface-sunken)]"}`}
+          className={`w-[5px] rounded-sm ${
+            v >= BUSY_DAY ? "bg-stop-600" : v > 0 ? "bg-pink" : "bg-[#E5E2DC]"
+          }`}
           style={{ height: `${Math.max(12, (v / max) * 100)}%` }}
         />
       ))}

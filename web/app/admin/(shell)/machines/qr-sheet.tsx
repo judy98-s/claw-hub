@@ -3,6 +3,8 @@
 import { DownloadSimple, Printer, X } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
+import { Mascot } from "@/components/mascot";
+import { STORES, type StoreType } from "@/lib/stores";
 
 type Machine = { id: string; code: string; label: string; qrTarget: string };
 
@@ -12,8 +14,17 @@ type Machine = { id: string; code: string; label: string; qrTarget: string };
  * QR만 인쇄하면 손님은 그게 뭔지 모르고 지나친다. 기계 이름과
  * "작동 불량 / 오류 시 스캔" 문구를 함께 넣어야 스티커가 일을 한다.
  */
-export function QrSheet({ machine, onClose }: { machine: Machine; onClose: () => void }) {
+export function QrSheet({
+  machine,
+  storeType = "claw",
+  onClose,
+}: {
+  machine: Machine;
+  storeType?: StoreType;
+  onClose: () => void;
+}) {
   const qrSrc = `/api/admin/machines/${machine.id}/qr.png`;
+  const cfg = STORES[storeType] ?? STORES.claw;
 
   /*
     스티커에 인쇄할 주소. qrTarget 에서 코드를 떼고 프로토콜을 지운다.
@@ -34,19 +45,37 @@ export function QrSheet({ machine, onClose }: { machine: Machine; onClose: () =>
           </button>
         </div>
 
-        {/* 인쇄되는 스티커 본체. 흰 배경에 검정 글씨로 고정한다 —
-            다크 모드에서 인쇄하면 잉크만 먹고 안 읽힌다. */}
+        {/*
+          인쇄되는 스티커 본체.
+
+          크기를 mm 로 둔다. 실제로 잘라 기계에 붙이는 물건이라, 화면
+          픽셀로 두면 프린터·배율에 따라 매번 다른 크기로 나온다.
+          60mm 는 기계 전면에 붙여 팔 뻗으면 찍히는 크기다.
+
+          글자는 검정으로 고정한다 — 다크 모드에서 인쇄하면 잉크만 먹고
+          안 읽힌다. 바탕만 매장 tint 를 쓴다. 흰 스티커는 기계에 붙이면
+          묻혀서 손님이 그냥 지나친다.
+        */}
         <div
           id="sticker"
-          className="mx-auto grid w-64 justify-items-center gap-3 rounded-xl border-2 border-black bg-white p-5 text-black"
+          style={{ width: "60mm", background: cfg.tint }}
+          className="mx-auto grid justify-items-center gap-2 rounded-xl border-2 border-black p-4 text-black"
         >
-          <p className="text-center text-[15px] font-bold leading-tight">
-            작동 불량 / 오류 시
-            <br />
-            QR을 스캔해주세요
-          </p>
+          <div className="flex items-center gap-1.5">
+            <Mascot store={storeType} mood="worried" size={28} />
+            <p className="text-center text-[15px] font-bold leading-tight">
+              {cfg.stickerHeadline}
+            </p>
+          </div>
+          {/* QR 은 흰 바탕 위에 둔다. tint 위에 바로 얹으면 대비가
+              떨어져 카메라가 못 읽는 프린터가 있다. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrSrc} alt={`${machine.label} 신고 QR`} className="size-40" />
+          <img
+            src={qrSrc}
+            alt={`${machine.label} 신고 QR`}
+            style={{ width: "34mm", height: "34mm" }}
+            className="rounded bg-white p-1"
+          />
           <div className="text-center">
             <p className="font-bold">{machine.label}</p>
             <p className="font-mono text-sm tracking-wider">{machine.code}</p>
@@ -88,6 +117,13 @@ export function QrSheet({ machine, onClose }: { machine: Machine; onClose: () =>
             position: absolute;
             left: 0;
             top: 0;
+          }
+          /* 바탕색은 기본적으로 인쇄되지 않는다. tint 가 빠지면 흰
+             스티커가 나와서 미리보기와 다른 물건이 된다. */
+          #sticker,
+          #sticker * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
         }
       `}</style>

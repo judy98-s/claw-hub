@@ -446,6 +446,13 @@ func (f *fakeStore) UpdateStore(_ context.Context, id string, in store.StoreProf
 	apply := func(d store.StoreDetail) store.StoreDetail {
 		d.Name, d.Phone = in.Name, in.Phone
 		d.RegionCode, d.RegionDetail, d.BizNo = in.RegionCode, in.RegionDetail, in.BizNo
+		// 진짜 구현의 COALESCE(NULLIF(...)) 과 같다 — 빈 값은 안 덮는다.
+		if in.Type != "" {
+			d.Type = in.Type
+			// 기계 조회가 내려주는 업종도 같이 따라가야 한다.
+			// 안 그러면 사장님이 바꿔도 손님 화면이 그대로다.
+			f.info.Type = in.Type
+		}
 		return d
 	}
 	if id == "store-1" {
