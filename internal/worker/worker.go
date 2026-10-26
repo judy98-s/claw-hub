@@ -61,6 +61,7 @@ func (w *Worker) CheckMachineAlerts(ctx context.Context, now time.Time) error {
 		}
 
 		if err := w.notify.MachineAlert(ctx, notify.MachineNotice{
+			StoreID:      m.StoreID,
 			MachineLabel: m.Label, Count: m.Count, ByIssue: m.ByIssue,
 		}); err != nil {
 			slog.Warn("기계 알림 실패", "err", err, "machine", m.Label)
@@ -82,6 +83,7 @@ func (w *Worker) SendDailyDigest(ctx context.Context, day time.Time) error {
 			lines = append(lines, notify.MachineLine{Label: m.Label, Count: m.Count})
 		}
 		if err := w.notify.DailyDigest(ctx, notify.DigestNotice{
+			StoreID:    r.StoreID,
 			Day:        day.Format("2006-01-02"),
 			ClaimCount: r.ClaimCount, PaidCount: r.PaidCount, PaidTotalKRW: r.PaidTotalKRW,
 			TopMachines: lines,

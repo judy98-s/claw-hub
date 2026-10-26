@@ -11,10 +11,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   // maximumScale 을 잠그지 않는다. 사장님이 사진 속 증상을 확대해서 봐야 하고,
   // 확대를 막는 건 접근성 위반이다.
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#faf9f7" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f0e0d" },
-  ],
+  // 상단 바가 ink 바탕이라 상태표시줄도 같은 색이어야 이어져 보인다 (§8).
+  // 다크 모드 시안은 아직 없어서 같은 값을 쓴다.
+  themeColor: "#16130F",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

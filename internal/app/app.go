@@ -68,11 +68,32 @@ func Build(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
-	var nt notify.Notifier = notify.NewNoop()
+	// 채널은 여러 개를 동시에 쓴다. 하나가 죽어도 나머지는 보낸다 —
+	// Slack 웹훅이 만료됐다고 푸시까지 멈추면 사장님은 알림이 아예
+	// 안 오는 걸로 겪는다.
+	var channels []notify.Notifier
 	if cfg.SlackWebhookURL != "" {
-		nt = notify.NewSlack(cfg.SlackWebhookURL, cfg.PublicBaseURL)
+		channels = append(channels, notify.NewSlack(cfg.SlackWebhookURL, cfg.PublicBaseURL))
 	} else {
-		slog.Warn("SLACK_WEBHOOK_URL이 비어 있어 알림이 비활성화됩니다. 대시보드는 그대로 동작합니다.")
+		slog.Warn("SLACK_WEBHOOK_URL이 비어 있어 Slack 알림이 비활성화됩니다. 대시보드는 그대로 동작합니다.")
+	}
+
+	switch {
+	case cfg.VapidPublicKey != "" && cfg.VapidPrivateKey != "" && cfg.VapidSubject != "":
+		channels = append(channels, notify.NewWebPush(st,
+			cfg.VapidPublicKey, cfg.VapidPrivateKey, cfg.VapidSubject, cfg.PublicBaseURL))
+	case cfg.VapidPublicKey != "" || cfg.VapidPrivateKey != "" || cfg.VapidSubject != "":
+		// 일부만 채운 것은 거의 항상 실수다. 조용히 끄면 왜 푸시가
+		// 안 오는지 찾느라 하루를 쓴다.
+		slog.Warn("VAPID 설정이 일부만 채워져 웹 푸시가 비활성화됩니다. " +
+			"VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT 가 모두 필요합니다.")
+	default:
+		slog.Info("VAPID 키가 없어 웹 푸시가 비활성화됩니다.")
+	}
+
+	var nt notify.Notifier = notify.NewNoop()
+	if len(channels) > 0 {
+		nt = notify.NewMulti(channels...)
 	}
 
 	if len(cfg.PayoutDeeplinkTemplates) == 0 {

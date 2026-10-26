@@ -40,8 +40,18 @@ type Config struct {
 	SessionSecret     []byte
 
 	SlackWebhookURL string // 빈 문자열이면 알림 비활성
-	MediaDir        string
-	PublicBaseURL   string
+
+	// 웹 푸시(VAPID). 셋 다 있어야 켜진다.
+	//
+	// 키는 한 번 만들어 .env 에 넣고 바꾸지 않는다. 바꾸면 이미 저장된
+	// 구독이 전부 무효가 되고, 사장님은 알림이 끊긴 걸 모른 채 지낸다.
+	VapidPublicKey  string
+	VapidPrivateKey string
+	// VapidSubject 는 푸시 서비스가 문제가 생겼을 때 연락할 곳이다.
+	// mailto: 또는 https: 여야 한다.
+	VapidSubject  string
+	MediaDir      string
+	PublicBaseURL string
 
 	PayoutDeeplinkTemplates map[string]string
 
@@ -84,6 +94,9 @@ func LoadFrom(get Getenv) (Config, error) {
 		DatabaseURL:     v.required("DATABASE_URL"),
 		RedisURL:        v.str("REDIS_URL", ""),
 		SlackWebhookURL: v.str("SLACK_WEBHOOK_URL", ""),
+		VapidPublicKey:  v.str("VAPID_PUBLIC_KEY", ""),
+		VapidPrivateKey: v.str("VAPID_PRIVATE_KEY", ""),
+		VapidSubject:    v.str("VAPID_SUBJECT", ""),
 		MediaDir:        v.str("MEDIA_DIR", "./data/photos"),
 		PublicBaseURL:   v.str("PUBLIC_BASE_URL", "http://localhost:3000"),
 

@@ -23,6 +23,8 @@ import (
 type Store interface {
 	// 공개 접수
 	MachineByCode(ctx context.Context, code string) (domain.Machine, store.StoreInfo, error)
+	SavePushSubscription(ctx context.Context, sub store.PushSubscription) error
+	DeletePushSubscription(ctx context.Context, endpoint string) error
 	SettlementFor(ctx context.Context, storeID string, from, to time.Time, alertCount int) (store.Settlement, error)
 	PublicStatusByReceipt(ctx context.Context, machineCode, receiptCode string) (store.PublicStatus, error)
 	CreateClaim(ctx context.Context, in store.CreateClaimInput) (store.CreateClaimResult, error)
@@ -157,6 +159,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/admin/login", s.handleLogin)
 	mux.HandleFunc("POST /api/admin/logout", s.handleLogout)
 	mux.Handle("GET /api/admin/me", s.authed(s.handleMe))
+	mux.Handle("GET /api/admin/push/key", s.authed(s.handlePushKey))
+	mux.Handle("POST /api/admin/push/subscribe", s.authed(s.handlePushSubscribe))
+	mux.Handle("POST /api/admin/push/unsubscribe", s.authed(s.handlePushUnsubscribe))
 	mux.Handle("GET /api/admin/home", s.authed(s.handleHome))
 	mux.Handle("GET /api/admin/claims", s.authed(s.handleListClaims))
 	// 아래 라우트들은 로그인 세션 또는 Slack 링크의 서명 토큰으로 들어온다.

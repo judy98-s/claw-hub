@@ -297,6 +297,9 @@ func (s *Server) notifyClaimCreated(ctx context.Context, res store.CreateClaimRe
 ) {
 	err := s.notify.ClaimCreated(ctx, notify.ClaimNotice{
 		ClaimID: res.ID,
+		// 웹 푸시는 매장별 구독을 찾아야 한다. Slack 은 웹훅 하나가
+		// 한 매장이라 안 쓰지만, 비어 있으면 푸시가 통째로 안 간다.
+		StoreID: storeID,
 		// 서명된 접근 토큰이 붙은 링크. 사장님이 로그인 없이 이 건만 연다.
 		URL:          s.claimLinkURL(storeID, res.ID),
 		MachineLabel: machineLabel,

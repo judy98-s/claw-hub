@@ -19,7 +19,8 @@ import (
 
 // fakeStore는 Postgres 없이 핸들러를 테스트하기 위한 저장소다.
 type fakeStore struct {
-	mu sync.Mutex
+	pushSubs map[string]store.PushSubscription
+	mu       sync.Mutex
 
 	machines map[string]domain.Machine // code -> machine
 	info     store.StoreInfo
@@ -1075,4 +1076,21 @@ func (f *fakeStore) SettlementFor(_ context.Context, storeID string, from, to ti
 		out.Machines = append(out.Machines, *m)
 	}
 	return out, nil
+}
+
+func (f *fakeStore) SavePushSubscription(_ context.Context, sub store.PushSubscription) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pushSubs == nil {
+		f.pushSubs = map[string]store.PushSubscription{}
+	}
+	f.pushSubs[sub.Endpoint] = sub
+	return nil
+}
+
+func (f *fakeStore) DeletePushSubscription(_ context.Context, endpoint string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.pushSubs, endpoint)
+	return nil
 }

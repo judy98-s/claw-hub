@@ -7,6 +7,7 @@ import { Plus, SignOut } from "@phosphor-icons/react";
 import { ApiError, get, patch, post } from "@/lib/api";
 import { phone as fmtPhone } from "@/lib/format";
 import { STORES } from "@/lib/stores";
+import { PushToggle } from "./push-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
@@ -127,6 +128,15 @@ export default function SettingsPage() {
           onSaved={setShop}
           onError={setError}
         />
+        <Section title="알림">
+          <div className="grid gap-2">
+            <p className="text-sm text-[var(--muted)]">
+              새 민원이 들어오면 폰으로 바로 알려드립니다. 브라우저를 닫아도 옵니다.
+            </p>
+            <PushToggle />
+          </div>
+        </Section>
+
         {payout && (
           <PayoutSection
             value={payout}

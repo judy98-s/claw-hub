@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
+
 	"github.com/judy98-s/claw-hub/internal/app"
 	"github.com/judy98-s/claw-hub/internal/domain"
 	"github.com/judy98-s/claw-hub/internal/store"
@@ -30,8 +32,14 @@ func main() {
 		reset      = flag.Bool("reset-password", false, "비밀번호만 바꾼다 (-email, -password 필요)")
 		listUsers  = flag.Bool("list-users", false, "등록된 계정 이메일을 보여준다")
 		pwStdin    = flag.Bool("password-stdin", false, "비밀번호를 표준입력에서 읽는다 (-password 대신)")
+		vapid      = flag.Bool("vapid-keys", false, "웹 푸시용 VAPID 키 한 쌍을 만든다")
 	)
 	flag.Parse()
+
+	if *vapid {
+		printVapidKeys()
+		return
+	}
 
 	if *listUsers {
 		listAllUsers()
@@ -185,4 +193,23 @@ func readPasswordStdin() (string, error) {
 		return "", errors.New(`표준입력이 비었습니다. echo -n "$PW" | ... 형태로 넘기세요.`)
 	}
 	return pw, nil
+}
+
+// printVapidKeys는 웹 푸시용 VAPID 키 한 쌍을 만들어 보여준다.
+//
+// 이 명령은 DB 에 붙지 않는다. 서버를 띄우기 전에도 돌릴 수 있어야 한다.
+//
+// 키는 한 번 만들어 .env 에 넣고 **바꾸지 않는다**. 바꾸면 이미 저장된
+// 구독이 전부 무효가 되고, 사장님은 알림이 끊긴 걸 모른 채 지낸다.
+func printVapidKeys() {
+	private, public, err := webpush.GenerateVAPIDKeys()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "키 생성 실패:", err)
+		os.Exit(1)
+	}
+	fmt.Println("# .env 에 붙여넣으세요. 한 번 정하면 바꾸지 마세요 —")
+	fmt.Println("# 바꾸면 기존 구독이 전부 무효가 되고 알림이 조용히 끊깁니다.")
+	fmt.Printf("VAPID_PUBLIC_KEY=%s\n", public)
+	fmt.Printf("VAPID_PRIVATE_KEY=%s\n", private)
+	fmt.Println("VAPID_SUBJECT=mailto:여기에-연락받을-메일주소")
 }

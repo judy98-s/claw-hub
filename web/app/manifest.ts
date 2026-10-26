@@ -19,8 +19,10 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#faf9f7",
-    theme_color: "#0f7167",
+    background_color: "#fffbf2",
+    // v2 상단 바가 ink 바탕이다 (§8). 예전 teal 값이 남아 있어서
+    // 설치된 앱의 상태표시줄만 옛 색으로 떴다.
+    theme_color: "#16130F",
     lang: "ko",
     categories: ["business", "productivity"],
     icons: [
