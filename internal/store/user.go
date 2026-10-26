@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,6 +80,10 @@ func (s *Store) SetPassword(ctx context.Context, email, password string) error {
 	if err != nil {
 		return fmt.Errorf("비밀번호 해싱: %w", err)
 	}
+	// 가입과 로그인은 이메일을 소문자로 내려 저장하고 비교한다. 여기서만
+	// 날것으로 비교하면 대문자가 섞인 입력이 조용히 "찾을 수 없습니다"가
+	// 되고, 원인이 비밀번호 쪽에 있는 줄 알고 한참 헤매게 된다.
+	email = strings.TrimSpace(strings.ToLower(email))
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE users
 		   SET password_hash=$1, failed_logins=0, locked_until=NULL
@@ -415,4 +420,39 @@ func (s *Store) CreateStoreWithOwner(ctx context.Context, storeName, storePhone 
 	}
 	u.StoreID = storeID
 	return storeID, u, nil
+}
+
+// AdminUserRow는 /setup -list-users 가 보여 주는 한 줄이다.
+//
+// 비밀번호를 바꾸려는데 "찾을 수 없습니다"가 나올 때, 서버에 psql 을 치지
+// 않고도 실제로 등록된 이메일을 확인할 수 있어야 한다. 해시는 담지 않는다.
+type AdminUserRow struct {
+	Email       string
+	Name        string
+	StoreName   string
+	LockedUntil *time.Time
+	CreatedAt   time.Time
+}
+
+// ListAllUsers는 모든 매장의 계정을 만든 순서로 돌려준다. 서버에서 직접
+// 돌리는 관리 명령 전용이다. HTTP 핸들러에서 쓰면 매장 격리가 깨진다.
+func (s *Store) ListAllUsers(ctx context.Context) ([]AdminUserRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT u.email, u.name, st.name, u.locked_until, u.created_at
+		  FROM users u JOIN stores st ON st.id = u.store_id
+		 ORDER BY u.created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("계정 목록: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AdminUserRow
+	for rows.Next() {
+		var r AdminUserRow
+		if err := rows.Scan(&r.Email, &r.Name, &r.StoreName, &r.LockedUntil, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("계정 목록 읽기: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

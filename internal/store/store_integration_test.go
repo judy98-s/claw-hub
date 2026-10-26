@@ -2244,3 +2244,61 @@ func TestSetPassword_없는_계정과_짧은_비밀번호(t *testing.T) {
 		t.Errorf("옛 비밀번호가 깨졌다: %v", err)
 	}
 }
+
+// 가입과 로그인은 이메일을 소문자로 내린다. 비밀번호 재설정만 날것으로
+// 비교하면 대문자 입력이 "찾을 수 없습니다"가 되어 원인을 비밀번호 쪽에서
+// 찾게 된다. 실제로 한 번 겪은 길이다.
+func TestSetPassword_이메일_대소문자를_가리지_않는다(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	_, _, err := s.CreateStoreWithOwner(ctx, "대소문자 매장", "", domain.StoreClaw,
+		"owner@example.com", "firstpass1", "사장")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetPassword(ctx, "  OWNER@Example.COM  ", "secondpass1"); err != nil {
+		t.Fatalf("대문자 섞인 이메일로 변경이 실패했다: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, "owner@example.com", "secondpass1"); err != nil {
+		t.Fatalf("바뀐 비밀번호로 로그인되지 않는다: %v", err)
+	}
+}
+
+func TestListAllUsers_등록순으로_해시_없이(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	if rows, err := s.ListAllUsers(ctx); err != nil || len(rows) != 0 {
+		t.Fatalf("빈 DB 에서 %d행, err=%v", len(rows), err)
+	}
+
+	for _, u := range []struct{ store, email string }{
+		{"첫 매장", "first@example.com"},
+		{"둘째 매장", "second@example.com"},
+	} {
+		if _, _, err := s.CreateStoreWithOwner(ctx, u.store, "", domain.StoreClaw,
+			u.email, "password1", "사장"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond) // created_at 순서를 확정한다
+	}
+
+	rows, err := s.ListAllUsers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("2행을 기대했는데 %d행", len(rows))
+	}
+	if rows[0].Email != "first@example.com" || rows[1].Email != "second@example.com" {
+		t.Fatalf("등록순이 아니다: %q, %q", rows[0].Email, rows[1].Email)
+	}
+	if rows[0].StoreName != "첫 매장" {
+		t.Fatalf("매장 이름이 안 붙었다: %q", rows[0].StoreName)
+	}
+	if rows[0].LockedUntil != nil {
+		t.Fatalf("새 계정이 잠겨 있다: %v", rows[0].LockedUntil)
+	}
+}

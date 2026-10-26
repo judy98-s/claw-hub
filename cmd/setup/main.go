@@ -6,12 +6,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/judy98-s/claw-hub/internal/app"
 	"github.com/judy98-s/claw-hub/internal/domain"
+	"github.com/judy98-s/claw-hub/internal/store"
 )
 
 func main() {
@@ -23,8 +26,14 @@ func main() {
 		name       = flag.String("name", "사장님", "표시 이름 (로그인 후 바꿀 수 있습니다)")
 		storeType  = flag.String("type", "claw", "업종: claw|laundry|karaoke|photo|study|cafe")
 		reset      = flag.Bool("reset-password", false, "비밀번호만 바꾼다 (-email, -password 필요)")
+		listUsers  = flag.Bool("list-users", false, "등록된 계정 이메일을 보여준다")
 	)
 	flag.Parse()
+
+	if *listUsers {
+		listAllUsers()
+		return
+	}
 
 	if *reset {
 		if *email == "" || *password == "" {
@@ -91,8 +100,44 @@ func resetPassword(email, password string) {
 
 	if err := a.Store.SetPassword(ctx, email, password); err != nil {
 		fmt.Fprintln(os.Stderr, "변경 실패:", err)
+		if errors.Is(err, store.ErrNotFound) {
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintf(os.Stderr, "%s 로 등록된 계정이 없습니다. 등록된 이메일을 확인하세요:\n", email)
+			fmt.Fprintln(os.Stderr, "  /setup -list-users")
+		}
 		os.Exit(1)
 	}
 	fmt.Printf("%s 의 비밀번호를 바꿨습니다.\n", email)
 	fmt.Println("로그인 실패 잠금도 함께 풀었습니다.")
+}
+
+// listAllUsers는 등록된 계정 이메일을 보여 준다.
+//
+// 비밀번호를 바꾸려는데 이메일이 안 맞으면 막힌다. psql 을 치게 만들지
+// 않는다. 비밀번호 해시는 출력하지 않는다.
+func listAllUsers() {
+	ctx := context.Background()
+	a, err := app.Build(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "기동 실패:", err)
+		os.Exit(1)
+	}
+	defer a.Close()
+
+	rows, err := a.Store.ListAllUsers(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "조회 실패:", err)
+		os.Exit(1)
+	}
+	if len(rows) == 0 {
+		fmt.Println("등록된 계정이 없습니다. /setup -store ... -email ... -password ... 로 먼저 만드세요.")
+		return
+	}
+	for _, r := range rows {
+		locked := ""
+		if r.LockedUntil != nil && r.LockedUntil.After(time.Now()) {
+			locked = fmt.Sprintf("  [잠김: %s 까지]", r.LockedUntil.Local().Format("01-02 15:04"))
+		}
+		fmt.Printf("%-32s  %-12s  %s%s\n", r.Email, r.Name, r.StoreName, locked)
+	}
 }
