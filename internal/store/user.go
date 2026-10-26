@@ -432,6 +432,7 @@ type AdminUserRow struct {
 	Email       string
 	Name        string
 	StoreName   string
+	Active      bool
 	LockedUntil *time.Time
 	CreatedAt   time.Time
 }
@@ -440,7 +441,7 @@ type AdminUserRow struct {
 // 돌리는 관리 명령 전용이다. HTTP 핸들러에서 쓰면 매장 격리가 깨진다.
 func (s *Store) ListAllUsers(ctx context.Context) ([]AdminUserRow, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT u.email, u.name, st.name, u.locked_until, u.created_at
+		SELECT u.email, u.name, st.name, u.active, u.locked_until, u.created_at
 		  FROM users u JOIN stores st ON st.id = u.store_id
 		 ORDER BY u.created_at`)
 	if err != nil {
@@ -451,7 +452,7 @@ func (s *Store) ListAllUsers(ctx context.Context) ([]AdminUserRow, error) {
 	var out []AdminUserRow
 	for rows.Next() {
 		var r AdminUserRow
-		if err := rows.Scan(&r.Email, &r.Name, &r.StoreName, &r.LockedUntil, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.Email, &r.Name, &r.StoreName, &r.Active, &r.LockedUntil, &r.CreatedAt); err != nil {
 			return nil, fmt.Errorf("계정 목록 읽기: %w", err)
 		}
 		out = append(out, r)

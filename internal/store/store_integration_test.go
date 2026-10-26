@@ -2330,3 +2330,49 @@ func TestSetPassword_길이는_바이트가_아니라_글자수로_센다(t *tes
 		t.Fatal("72바이트를 넘는 비밀번호가 통과했다")
 	}
 }
+
+// active=false 면 비밀번호가 맞아도 Authenticate 가 ErrNotFound 를 준다.
+// 핸들러는 그걸 "이메일 또는 비밀번호가 올바르지 않습니다" 로 바꾼다.
+// SetPassword 는 active 를 건드리지 않으므로, 비밀번호를 몇 번 바꿔도
+// 계속 같은 401 이 난다. 관리 명령이 active 를 보여줘야 하는 이유다.
+func TestListAllUsers_비활성_계정을_표시한다(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	storeID, _, err := s.CreateStoreWithOwner(ctx, "비활성 매장", "", domain.StoreClaw,
+		"owner@example.com", "password1", "사장")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 마지막 활성 계정은 비활성화할 수 없다. 직원을 하나 더 만든다.
+	staff, err := s.CreateUser(ctx, storeID, "staff@example.com", "password1", "직원", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetUserActive(ctx, storeID, staff.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := s.ListAllUsers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.Email] = r.Active
+	}
+	if !got["owner@example.com"] {
+		t.Error("사장님이 비활성으로 보고됐다")
+	}
+	if got["staff@example.com"] {
+		t.Error("비활성 직원이 활성으로 보고됐다 — 이 플래그가 안 보이면 원인을 찾을 수 없다")
+	}
+
+	// 비밀번호를 바꿔도 비활성 계정은 들어올 수 없다.
+	if err := s.SetPassword(ctx, "staff@example.com", "newpassword1"); err != nil {
+		t.Fatalf("비활성 계정의 비밀번호 변경이 실패했다: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, "staff@example.com", "newpassword1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("비활성 계정이 로그인됐거나 다른 에러가 났다: %v", err)
+	}
+}

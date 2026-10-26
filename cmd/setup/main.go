@@ -157,11 +157,17 @@ func listAllUsers() {
 		return
 	}
 	for _, r := range rows {
-		locked := ""
-		if r.LockedUntil != nil && r.LockedUntil.After(time.Now()) {
-			locked = fmt.Sprintf("  [잠김: %s 까지]", r.LockedUntil.Local().Format("01-02 15:04"))
+		// active=false 면 비밀번호가 맞아도 로그인이 401 로 막힌다. 그런데
+		// 에러 메시지는 "이메일 또는 비밀번호가 올바르지 않습니다" 뿐이라,
+		// 여기서 보여주지 않으면 비밀번호만 계속 바꾸게 된다.
+		flags := ""
+		if !r.Active {
+			flags += "  [비활성 — 로그인 불가]"
 		}
-		fmt.Printf("%-32s  %-12s  %s%s\n", r.Email, r.Name, r.StoreName, locked)
+		if r.LockedUntil != nil && r.LockedUntil.After(time.Now()) {
+			flags += fmt.Sprintf("  [잠김: %s 까지]", r.LockedUntil.Local().Format("01-02 15:04"))
+		}
+		fmt.Printf("%-32s  %-12s  %s%s\n", r.Email, r.Name, r.StoreName, flags)
 	}
 }
 
