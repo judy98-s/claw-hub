@@ -23,6 +23,7 @@ import (
 type Store interface {
 	// 공개 접수
 	MachineByCode(ctx context.Context, code string) (domain.Machine, store.StoreInfo, error)
+	SettlementFor(ctx context.Context, storeID string, from, to time.Time, alertCount int) (store.Settlement, error)
 	PublicStatusByReceipt(ctx context.Context, machineCode, receiptCode string) (store.PublicStatus, error)
 	CreateClaim(ctx context.Context, in store.CreateClaimInput) (store.CreateClaimResult, error)
 	ClaimByIdempotencyKey(ctx context.Context, storeID, key string) (store.CreateClaimResult, bool, error)
@@ -177,6 +178,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/contacts", s.authed(s.handleListContacts))
 	mux.Handle("PATCH /api/admin/contacts/{hash}", s.authed(s.handleSetContactStatus))
 	mux.Handle("GET /api/admin/stats/daily", s.authed(s.handleDailyStats))
+	mux.Handle("GET /api/admin/stats/settlement", s.authed(s.handleSettlement))
+	mux.Handle("GET /api/admin/stats/settlement.csv", s.authed(s.handleSettlementCSV))
 
 	mux.Handle("GET /api/admin/inventory", s.authed(s.handleInventory))
 	mux.Handle("GET /api/admin/inventory/{nameKey}", s.authed(s.handleInventoryItem))

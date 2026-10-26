@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ChartBar,
   ClipboardText,
   GameController,
   GearSix,
@@ -25,6 +26,7 @@ const NAV = [
   { href: "/admin/inventory", label: "재고", Icon: Package },
   { href: "/admin/market", label: "장터", Icon: Storefront },
   { href: "/admin/machines", label: "기계", Icon: GameController },
+  { href: "/admin/stats", label: "정산", Icon: ChartBar },
   { href: "/admin/contacts", label: "연락처", Icon: UsersThree },
   { href: "/admin/settings", label: "설정", Icon: GearSix },
 ];

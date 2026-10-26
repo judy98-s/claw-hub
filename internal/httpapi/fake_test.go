@@ -1035,3 +1035,37 @@ func (f *fakeStore) setStatus(receipt string, st domain.Status) {
 		f.claims[id] = c
 	}
 }
+
+// SettlementFor는 정산 화면 테스트용이다. 진짜 집계는 SQL 이 하므로
+// (store 통합 테스트가 본다) 여기서는 호출이 통과하는 것만 보장한다.
+func (f *fakeStore) SettlementFor(_ context.Context, storeID string, from, to time.Time, alertCount int) (store.Settlement, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := store.Settlement{From: from, To: to}
+	byMachine := map[string]*store.SettlementMachine{}
+	for _, c := range f.claims {
+		if c.StoreID != storeID || c.CreatedAt.Before(from) || c.CreatedAt.After(to) {
+			continue
+		}
+		out.ClaimCount++
+		if c.Status == domain.StatusPaid {
+			out.PaidCount++
+			out.PaidTotalKRW += c.AmountKRW
+		}
+		m, ok := byMachine[c.MachineID]
+		if !ok {
+			m = &store.SettlementMachine{MachineID: c.MachineID, Label: c.MachineID}
+			byMachine[c.MachineID] = m
+		}
+		m.ClaimCount++
+		if c.Status == domain.StatusPaid {
+			m.PaidTotalKRW += c.AmountKRW
+		}
+	}
+	for _, m := range byMachine {
+		m.NeedsCheck = alertCount > 0 && m.ClaimCount >= alertCount
+		out.Machines = append(out.Machines, *m)
+	}
+	return out, nil
+}
