@@ -1,4 +1,4 @@
-// Command setup은 첫 매장과 사장님 계정을 만든다.
+// Command setup은 첫 매장과 사장님 계정을 만들고, 비밀번호를 되돌린다.
 //
 // 회원가입 화면을 만들지 않았다. 사장님 한 명이 쓰는 시스템에서 공개
 // 가입 페이지는 공격 표면만 늘린다. 계정은 서버에서 한 번 만들면 된다.
@@ -22,8 +22,18 @@ func main() {
 		password   = flag.String("password", "", "비밀번호, 8자 이상 (필수)")
 		name       = flag.String("name", "사장님", "표시 이름 (로그인 후 바꿀 수 있습니다)")
 		storeType  = flag.String("type", "claw", "업종: claw|laundry|karaoke|photo|study|cafe")
+		reset      = flag.Bool("reset-password", false, "비밀번호만 바꾼다 (-email, -password 필요)")
 	)
 	flag.Parse()
+
+	if *reset {
+		if *email == "" || *password == "" {
+			fmt.Fprintln(os.Stderr, "-reset-password 에는 -email 과 -password 가 필요합니다.")
+			os.Exit(2)
+		}
+		resetPassword(*email, *password)
+		return
+	}
 
 	if *storeName == "" || *email == "" || *password == "" {
 		flag.Usage()
@@ -63,4 +73,26 @@ func main() {
 	fmt.Println("이제 /admin/login 에서 로그인한 뒤 기계를 등록하고 QR을 인쇄하세요.")
 	fmt.Println()
 	fmt.Println("비밀번호와 이메일은 화면에서 바꿀 수 없습니다. 비밀번호 관리자에 저장해 두세요.")
+}
+
+// resetPassword는 비밀번호만 바꾼다. 매장도 계정도 만들지 않는다.
+//
+// 화면에 변경 경로가 없어서 남겨 둔 길이다. 비밀번호를 잊었을 때
+// /setup 을 다시 돌리면 **새 매장**이 생기고 기존 기계와 민원은 첫 매장에
+// 남아 접근할 수 없게 된다. 그 사고를 막으려고 따로 뒀다.
+func resetPassword(email, password string) {
+	ctx := context.Background()
+	a, err := app.Build(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "기동 실패:", err)
+		os.Exit(1)
+	}
+	defer a.Close()
+
+	if err := a.Store.SetPassword(ctx, email, password); err != nil {
+		fmt.Fprintln(os.Stderr, "변경 실패:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%s 의 비밀번호를 바꿨습니다.\n", email)
+	fmt.Println("로그인 실패 잠금도 함께 풀었습니다.")
 }

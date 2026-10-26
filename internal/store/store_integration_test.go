@@ -2190,3 +2190,57 @@ func TestStoreType_아는_값만_들어간다(t *testing.T) {
 		t.Errorf("오류 = %v", err)
 	}
 }
+
+func TestSetPassword_바꾸고_잠금도_푼다(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	const email = "reset@example.test"
+	if _, _, err := s.CreateStoreWithOwner(ctx, "매장", "", domain.StoreClaw,
+		email, "old-password-1234", "사장님"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 틀린 비밀번호로 여러 번 시도해 잠근다.
+	for i := 0; i < 10; i++ {
+		_, _ = s.Authenticate(ctx, email, "wrong-password")
+	}
+	if _, err := s.Authenticate(ctx, email, "old-password-1234"); !errors.Is(err, ErrLocked) {
+		t.Fatalf("잠기지 않았다: %v", err)
+	}
+
+	if err := s.SetPassword(ctx, email, "new-password-5678"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 새 비밀번호로 바로 들어가진다. 잠금이 안 풀리면 15분을 기다려야 하고,
+	// 그러면 비밀번호를 바꾼 보람이 없다.
+	if _, err := s.Authenticate(ctx, email, "new-password-5678"); err != nil {
+		t.Fatalf("새 비밀번호로 로그인: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, email, "old-password-1234"); err == nil {
+		t.Error("옛 비밀번호가 아직 통한다")
+	}
+}
+
+func TestSetPassword_없는_계정과_짧은_비밀번호(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	if err := s.SetPassword(ctx, "nobody@example.test", "long-enough-1234"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("없는 계정 = %v, want ErrNotFound", err)
+	}
+
+	const email = "short@example.test"
+	if _, _, err := s.CreateStoreWithOwner(ctx, "매장", "", domain.StoreClaw,
+		email, "old-password-1234", "사장님"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPassword(ctx, email, "1234567"); err == nil {
+		t.Error("7자가 통과했다")
+	}
+	// 거부됐으면 옛 비밀번호가 그대로여야 한다.
+	if _, err := s.Authenticate(ctx, email, "old-password-1234"); err != nil {
+		t.Errorf("옛 비밀번호가 깨졌다: %v", err)
+	}
+}

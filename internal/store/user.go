@@ -58,6 +58,40 @@ func (s *Store) CreateUser(ctx context.Context, storeID, email, password, name, 
 	return u, nil
 }
 
+// SetPassword는 비밀번호를 바꾼다.
+//
+// 화면에는 이 경로가 없고 서버에서만 부른다. 사장님이 비밀번호를 잊었을 때
+// /setup -reset-password 로 되돌리는 길이다. 화면에 두려면 현재 비밀번호
+// 확인과 세션 무효화가 함께 필요한데, 그건 별도 작업이다.
+//
+// 잠금(failed_logins, locked_until)도 같이 푼다. 비밀번호를 바꾼 뒤에도
+// 15분을 기다려야 하면 바꾼 보람이 없다.
+func (s *Store) SetPassword(ctx context.Context, email, password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("비밀번호는 8자 이상이어야 합니다")
+	}
+	// bcrypt 는 72바이트를 넘으면 잘라 버린다. 조용히 자르면 사용자가 믿는
+	// 비밀번호와 저장된 것이 달라진다.
+	if len(password) > 72 {
+		return fmt.Errorf("비밀번호는 72자 이하여야 합니다")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("비밀번호 해싱: %w", err)
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE users
+		   SET password_hash=$1, failed_logins=0, locked_until=NULL
+		 WHERE email=$2`, string(hash), email)
+	if err != nil {
+		return fmt.Errorf("비밀번호 변경: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateUser는 이름과 연락처를 바꾼다. 이메일과 비밀번호는 건드리지 않는다.
 func (s *Store) UpdateUser(ctx context.Context, storeID, userID, name, phone string) (User, error) {
 	var u User

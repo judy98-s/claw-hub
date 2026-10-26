@@ -4,7 +4,11 @@
 #
 # **서버에서, claw-hub 디렉터리에서 실행한다.**
 #
-#   bash scripts/seed-demo.sh owner@example.com '비밀번호'
+#   bash scripts/seed-demo.sh owner@example.com
+#
+# 비밀번호는 실행 중에 물어본다. 명령줄 인자로 받지 않는다 — 셸 히스토리와
+# ps 출력에 남고, 화면에 그대로 보인다. bash 에서는 `!` 가 히스토리 확장으로
+# 해석돼서 "event not found" 로 명령이 통째로 죽기도 한다.
 #
 # 왜 필요한가: 빈 대시보드는 아무것도 말해주지 않는다. 목록이 어떻게
 # 보이는지, 기계 이상 알림이 언제 뜨는지, 승인한 건이 어디로 가는지는
@@ -21,16 +25,24 @@
 set -u
 
 EMAIL="${1:-}"
-PASSWORD="${2:-}"
 BASE="${BASE_URL:-http://localhost:8080}"
 
 die() { printf '\033[0;31m%s\033[0m\n' "$*" >&2; exit 1; }
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
-[ -n "$EMAIL" ] && [ -n "$PASSWORD" ] || die "사용법: bash scripts/seed-demo.sh <이메일> <비밀번호>
+[ -n "$EMAIL" ] || die "사용법: bash scripts/seed-demo.sh <이메일>
 
-비밀번호가 셸 히스토리에 남는 게 싫으면 먼저 읽어서 넘긴다:
-  read -rs PW && bash scripts/seed-demo.sh you@example.com \"\$PW\""
+비밀번호는 실행 중에 물어봅니다."
+
+# 비밀번호는 여기서 받는다. 인자로 받으면 셸 히스토리와 ps 에 남는다.
+# SEED_PASSWORD 환경변수로도 넘길 수 있다 (CI 용).
+PASSWORD="${SEED_PASSWORD:-}"
+if [ -z "$PASSWORD" ]; then
+  printf "%s 의 비밀번호: " "$EMAIL" >&2
+  read -rs PASSWORD < /dev/tty
+  printf "\n" >&2
+fi
+[ -n "$PASSWORD" ] || die "비밀번호가 비었습니다."
 
 # 도커로 돌고 있으면 api 컨테이너를 통해 부른다. 호스트에는 8080 이
 # 열려 있지 않다 — compose 가 포트를 publish 하지 않기 때문이다.
