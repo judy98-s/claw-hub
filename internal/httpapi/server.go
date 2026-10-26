@@ -23,6 +23,7 @@ import (
 type Store interface {
 	// 공개 접수
 	MachineByCode(ctx context.Context, code string) (domain.Machine, store.StoreInfo, error)
+	PublicStatusByReceipt(ctx context.Context, machineCode, receiptCode string) (store.PublicStatus, error)
 	CreateClaim(ctx context.Context, in store.CreateClaimInput) (store.CreateClaimResult, error)
 	ClaimByIdempotencyKey(ctx context.Context, storeID, key string) (store.CreateClaimResult, bool, error)
 	RiskFactsFor(ctx context.Context, q store.RiskQuery) (domain.RiskInput, error)
@@ -146,6 +147,7 @@ func (s *Server) Handler() http.Handler {
 	// 공개 — 인증 없음, 레이트리밋 적용
 	mux.HandleFunc("GET /api/public/machines/{code}", s.handleMachineByCode)
 	mux.HandleFunc("GET /api/public/banks", s.handleBanks)
+	mux.HandleFunc("GET /api/public/claims/{receiptCode}", s.handlePublicClaimStatus)
 	mux.Handle("POST /api/public/claims", s.rateLimitPublic(http.HandlerFunc(s.handleCreateClaim)))
 	mux.HandleFunc("GET /api/public/signup", s.handleSignupStatus)
 	mux.Handle("POST /api/public/signup", s.rateLimitSignup(http.HandlerFunc(s.handleSignup)))

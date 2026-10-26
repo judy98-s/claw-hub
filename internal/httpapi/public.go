@@ -552,3 +552,9 @@ func comma(n int) string {
 	}
 	return string(out)
 }
+
+// normalizeReceiptCode는 손님이 본 그대로(대문자 8자)로 되돌린다.
+// 조회는 소문자로 하지만, 화면에는 영수증에 적힌 모양으로 보여야 한다.
+func normalizeReceiptCode(s string) string {
+	return strings.ToUpper(strings.TrimSpace(s))
+}

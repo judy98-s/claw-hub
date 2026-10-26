@@ -2376,3 +2376,129 @@ func TestListAllUsers_비활성_계정을_표시한다(t *testing.T) {
 		t.Fatalf("비활성 계정이 로그인됐거나 다른 에러가 났다: %v", err)
 	}
 }
+
+// receiptOf는 접수번호다. httpapi 의 receiptCode 와 같은 규칙이어야 한다 —
+// 손님이 받은 번호로 조회되지 않으면 이 기능은 쓸모가 없다.
+func receiptOf(id string) string {
+	return strings.ToUpper(strings.ReplaceAll(id, "-", "")[:8])
+}
+
+func TestPublicStatusByReceipt_접수번호로_찾는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	res, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, "key-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := s.PublicStatusByReceipt(ctx, m.Code, receiptOf(res.ID))
+	if err != nil {
+		t.Fatalf("접수번호로 못 찾았다: %v", err)
+	}
+	if p.Status != domain.StatusPending {
+		t.Errorf("Status = %q", p.Status)
+	}
+	if p.AmountKRW == 0 {
+		t.Error("금액이 0 이다")
+	}
+	if p.StoreName != "테스트 매장" {
+		t.Errorf("StoreName = %q", p.StoreName)
+	}
+	if p.StorePhone != "0212345678" {
+		t.Errorf("StorePhone = %q — 손님이 전화할 번호다", p.StorePhone)
+	}
+	if p.StoreType != domain.StoreClaw {
+		t.Errorf("StoreType = %q", p.StoreType)
+	}
+	if p.CreatedAt.IsZero() {
+		t.Error("접수 시각이 비었다")
+	}
+	if !p.ResolvedAt.IsZero() || !p.PaidAt.IsZero() {
+		t.Error("아직 처리 전인데 처리 시각이 있다")
+	}
+
+	// 소문자로 넣어도 찾아야 한다. 손님이 직접 타이핑할 수 있다.
+	if _, err := s.PublicStatusByReceipt(ctx, m.Code, strings.ToLower(receiptOf(res.ID))); err != nil {
+		t.Errorf("소문자 접수번호로 못 찾았다: %v", err)
+	}
+}
+
+// 기계로 좁히는 것이 매장 간 열거를 막는 선이다. 다른 매장의 기계
+// 코드로는 조회되지 않아야 한다.
+func TestPublicStatusByReceipt_다른_기계로는_못_찾는다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	other, err := s.CreateMachine(ctx, storeID, "9번 기계", "입구 오른쪽")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, "key-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.PublicStatusByReceipt(ctx, other.Code, receiptOf(res.ID)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("같은 매장 다른 기계로 조회됐다: %v", err)
+	}
+	if _, err := s.PublicStatusByReceipt(ctx, "ZZZZ99", receiptOf(res.ID)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("없는 기계 코드로 조회됐다: %v", err)
+	}
+}
+
+func TestPublicStatusByReceipt_잘못된_접수번호(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+	if _, err := s.CreateClaim(ctx, claimInput(storeID, m.ID, "key-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, code := range []string{
+		"",          // 비었다
+		"ABC",       // 짧다
+		"ABCDEFGHI", // 길다
+		"ZZZZZZZZ",  // 16진수가 아니다
+		"DEADBEEF",  // 형식은 맞지만 없는 번호
+		// 16진수가 아닌 값이 SQL 까지 가면 안 된다. 접두사 비교라
+		// 인젝션은 아니지만, 쓸데없는 전체 스캔을 만든다.
+		"' OR '1",
+	} {
+		if _, err := s.PublicStatusByReceipt(ctx, m.Code, code); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%q -> %v, want ErrNotFound", code, err)
+		}
+	}
+}
+
+// 접수번호는 32비트라 충돌할 수 있다. 같은 기계에 앞 8자가 같은 두 건이
+// 생기면 둘 다 안 보여줘야 한다 — 남의 건을 보여주는 것보다 낫다.
+//
+// 실제로 충돌을 만들려면 UUID 를 고를 수 있어야 해서, 직접 INSERT 한다.
+func TestPublicStatusByReceipt_충돌하면_못_찾은_것으로_본다(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	storeID, m := fixture(t, s)
+
+	// 앞 8자가 같고 뒤가 다른 두 UUID.
+	const a = "abcdef12-0000-4000-8000-000000000001"
+	const b = "abcdef12-1111-4000-8000-000000000002"
+	for _, id := range []string{a, b} {
+		if _, err := s.pool.Exec(ctx, `
+			INSERT INTO claims (id, store_id, machine_id, issue_type, amount_krw, description,
+			                    phone_enc, phone_hash, bank_code,
+			                    account_enc, account_hash, holder_enc,
+			                    payment_method, status, idempotency_key)
+			VALUES ($1,$2,$3,'cash_eaten',2000,'',
+			        '\x00','\x00','090','\x00','\x00','\x00','cash','pending',$4)`,
+			id, storeID, m.ID, "collide-"+id); err != nil {
+			t.Fatalf("INSERT 실패: %v", err)
+		}
+	}
+
+	if _, err := s.PublicStatusByReceipt(ctx, m.Code, "ABCDEF12"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("충돌한 접수번호가 조회됐다: %v — 남의 건을 보여줄 수 있다", err)
+	}
+}

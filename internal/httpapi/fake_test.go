@@ -92,6 +92,42 @@ func (f *fakeStore) addMachine(code, label string) domain.Machine {
 	return m
 }
 
+// PublicStatusByReceipt는 접수번호 앞 8자로 찾는다. 진짜 구현처럼
+// 기계 코드로 좁히고, 두 건이 걸리면 못 찾은 것으로 본다.
+func (f *fakeStore) PublicStatusByReceipt(_ context.Context, machineCode, receiptCode string) (store.PublicStatus, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	m, ok := f.machines[machineCode]
+	if !ok {
+		return store.PublicStatus{}, store.ErrNotFound
+	}
+	prefix := strings.ToLower(strings.TrimSpace(receiptCode))
+
+	var hit store.PublicStatus
+	found := 0
+	for _, c := range f.claims {
+		if c.MachineID != m.ID {
+			continue
+		}
+		if strings.ToLower(strings.ReplaceAll(c.ID, "-", ""))[:8] != prefix {
+			continue
+		}
+		found++
+		hit = store.PublicStatus{
+			Status: c.Status, IssueType: c.IssueType, AmountKRW: c.AmountKRW,
+			PaymentMethod: c.PaymentMethod, CreatedAt: c.CreatedAt,
+			ResolvedAt: c.ResolvedAt, PaidAt: c.PaidAt,
+			StoreName: f.info.Name, StorePhone: f.info.Phone,
+			StoreType: domain.NormalizeStoreType(string(f.info.Type)),
+		}
+	}
+	if found != 1 {
+		return store.PublicStatus{}, store.ErrNotFound
+	}
+	return hit, nil
+}
+
 func (f *fakeStore) claimCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -976,4 +1012,26 @@ func (f *fakeStore) ReportListing(_ context.Context, listingID, reporterStoreID,
 	}
 	f.listings[listingID] = l
 	return removed, nil
+}
+
+// setStatus는 접수번호 앞 8자로 건을 찾아 상태를 바꾼다. 사장님이
+// 승인·거절·송금한 뒤를 흉내낸다.
+func (f *fakeStore) setStatus(receipt string, st domain.Status) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	prefix := strings.ToLower(receipt)
+	for id, c := range f.claims {
+		if strings.ToLower(strings.ReplaceAll(id, "-", ""))[:8] != prefix {
+			continue
+		}
+		c.Status = st
+		switch st {
+		case domain.StatusApproved, domain.StatusRejected:
+			c.ResolvedAt = time.Now()
+		case domain.StatusPaid:
+			c.ResolvedAt = time.Now()
+			c.PaidAt = time.Now()
+		}
+		f.claims[id] = c
+	}
 }
