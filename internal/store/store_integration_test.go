@@ -2302,3 +2302,31 @@ func TestListAllUsers_등록순으로_해시_없이(t *testing.T) {
 		t.Fatalf("새 계정이 잠겨 있다: %v", rows[0].LockedUntil)
 	}
 }
+
+// 8자 검사를 바이트로 세면 한글 3자(9바이트)가 통과한다. 안내문의
+// 자리표시 "새비밀번호"(5자/15바이트)가 그대로 설정돼 버린 적이 있다.
+func TestSetPassword_길이는_바이트가_아니라_글자수로_센다(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateStoreWithOwner(ctx, "길이 매장", "", domain.StoreClaw,
+		"len@example.com", "password1", "사장"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5자 15바이트. 바이트로 세면 통과한다.
+	if err := s.SetPassword(ctx, "len@example.com", "새비밀번호"); err == nil {
+		t.Fatal("한글 5자가 통과했다 — 바이트로 세고 있다")
+	}
+	// 8자 24바이트. 글자수로는 통과해야 한다.
+	if err := s.SetPassword(ctx, "len@example.com", "여덟글자비밀번호"); err != nil {
+		t.Fatalf("한글 8자가 거절됐다: %v", err)
+	}
+	if _, err := s.Authenticate(ctx, "len@example.com", "여덟글자비밀번호"); err != nil {
+		t.Fatalf("한글 비밀번호로 로그인되지 않는다: %v", err)
+	}
+	// 25자 75바이트. bcrypt 가 72바이트에서 자르므로 거절해야 한다.
+	if err := s.SetPassword(ctx, "len@example.com", strings.Repeat("가", 25)); err == nil {
+		t.Fatal("72바이트를 넘는 비밀번호가 통과했다")
+	}
+}

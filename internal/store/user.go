@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -38,7 +39,7 @@ const (
 
 // CreateUser는 매장 계정을 만든다.
 func (s *Store) CreateUser(ctx context.Context, storeID, email, password, name, phone string) (User, error) {
-	if len(password) < 8 {
+	if utf8.RuneCountInString(password) < 8 {
 		return User{}, fmt.Errorf("비밀번호는 8자 이상이어야 합니다")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -68,11 +69,12 @@ func (s *Store) CreateUser(ctx context.Context, storeID, email, password, name, 
 // 잠금(failed_logins, locked_until)도 같이 푼다. 비밀번호를 바꾼 뒤에도
 // 15분을 기다려야 하면 바꾼 보람이 없다.
 func (s *Store) SetPassword(ctx context.Context, email, password string) error {
-	if len(password) < 8 {
+	if utf8.RuneCountInString(password) < 8 {
 		return fmt.Errorf("비밀번호는 8자 이상이어야 합니다")
 	}
 	// bcrypt 는 72바이트를 넘으면 잘라 버린다. 조용히 자르면 사용자가 믿는
-	// 비밀번호와 저장된 것이 달라진다.
+	// 비밀번호와 저장된 것이 달라진다. 여기는 글자 수가 아니라 바이트가
+	// 맞다 — 잘리는 단위가 바이트다. 한글은 글자당 3바이트라 24자가 상한.
 	if len(password) > 72 {
 		return fmt.Errorf("비밀번호는 72자 이하여야 합니다")
 	}
@@ -384,7 +386,7 @@ func (s *Store) UpdatePayoutSettings(ctx context.Context, id string, in PayoutSe
 // 비밀번호 검증과 해싱은 트랜잭션 **밖에서** 한다. bcrypt 는 100ms 가까이
 // 걸리는데 그동안 트랜잭션을 열어 둘 이유가 없다.
 func (s *Store) CreateStoreWithOwner(ctx context.Context, storeName, storePhone string, storeType domain.StoreType, email, password, name string) (string, User, error) {
-	if len(password) < 8 {
+	if utf8.RuneCountInString(password) < 8 {
 		return "", User{}, fmt.Errorf("비밀번호는 8자 이상이어야 합니다")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

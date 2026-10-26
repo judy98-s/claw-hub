@@ -9,7 +9,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/judy98-s/claw-hub/internal/app"
@@ -27,6 +29,7 @@ func main() {
 		storeType  = flag.String("type", "claw", "업종: claw|laundry|karaoke|photo|study|cafe")
 		reset      = flag.Bool("reset-password", false, "비밀번호만 바꾼다 (-email, -password 필요)")
 		listUsers  = flag.Bool("list-users", false, "등록된 계정 이메일을 보여준다")
+		pwStdin    = flag.Bool("password-stdin", false, "비밀번호를 표준입력에서 읽는다 (-password 대신)")
 	)
 	flag.Parse()
 
@@ -35,9 +38,29 @@ func main() {
 		return
 	}
 
+	// -password 로 넘기면 셸 히스토리와 ps 출력에 평문으로 남는다. 그리고
+	// 안내문의 자리표시("새비밀번호" 같은 것)를 그대로 붙여 실행하면
+	// 그게 진짜 비밀번호가 되어 버린다. 실제로 한 번 겪은 길이다.
+	// -password-stdin 은 둘 다 막는다.
+	if *pwStdin {
+		if *password != "" {
+			fmt.Fprintln(os.Stderr, "-password 와 -password-stdin 을 함께 쓸 수 없습니다.")
+			os.Exit(2)
+		}
+		pw, err := readPasswordStdin()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		*password = pw
+	}
+
 	if *reset {
 		if *email == "" || *password == "" {
-			fmt.Fprintln(os.Stderr, "-reset-password 에는 -email 과 -password 가 필요합니다.")
+			fmt.Fprintln(os.Stderr, "-reset-password 에는 -email 과, -password 또는 -password-stdin 이 필요합니다.")
+			fmt.Fprintln(os.Stderr)
+			fmt.Fprintln(os.Stderr, "히스토리에 남기지 않으려면:")
+			fmt.Fprintln(os.Stderr, `  echo -n "$PW" | /setup -reset-password -email ... -password-stdin`)
 			os.Exit(2)
 		}
 		resetPassword(*email, *password)
@@ -140,4 +163,20 @@ func listAllUsers() {
 		}
 		fmt.Printf("%-32s  %-12s  %s%s\n", r.Email, r.Name, r.StoreName, locked)
 	}
+}
+
+// readPasswordStdin은 표준입력 전체를 비밀번호로 읽는다.
+//
+// 끝의 줄바꿈 하나만 떼어낸다. 앞뒤 공백은 남긴다 — 비밀번호에 일부러
+// 넣은 공백을 조용히 지우면, 사용자가 믿는 비밀번호로 로그인이 안 된다.
+func readPasswordStdin() (string, error) {
+	b, err := io.ReadAll(io.LimitReader(os.Stdin, 4096))
+	if err != nil {
+		return "", fmt.Errorf("표준입력 읽기: %w", err)
+	}
+	pw := strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r")
+	if pw == "" {
+		return "", errors.New(`표준입력이 비었습니다. echo -n "$PW" | ... 형태로 넘기세요.`)
+	}
+	return pw, nil
 }
