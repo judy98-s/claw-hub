@@ -46,7 +46,10 @@ fi
 
 # 도커로 돌고 있으면 api 컨테이너를 통해 부른다. 호스트에는 8080 이
 # 열려 있지 않다 — compose 가 포트를 publish 하지 않기 때문이다.
-CURL="curl"
+# --max-time 이 없으면 서버가 응답을 안 줄 때 아무 출력 없이 영원히
+# 멈춘다. 그게 제일 알아내기 어려운 실패 모양이다. -sS 는 조용하지만
+# 에러는 말하게 한다.
+CURL="curl -sS --max-time 25"
 if ! curl -s -o /dev/null --max-time 3 "$BASE/healthz" 2>/dev/null; then
   if docker compose -f docker-compose.prod.yml ps api >/dev/null 2>&1; then
     say "호스트에서 api 에 닿지 않는다 — Caddy 를 통해 부른다"
@@ -58,16 +61,25 @@ fi
 curl -s -o /dev/null --max-time 10 "$BASE/healthz" || die "$BASE 에 닿지 않는다."
 say "서버 $BASE"
 
-JAR=$(mktemp); code=$($CURL -s -c "$JAR" -o /dev/null -w '%{http_code}' -X POST "$BASE/api/admin/login" \
+# python3 로 JSON 을 만든다. 비밀번호에 " 나 \ 가 들어가도 깨지지 않는다.
+command -v python3 >/dev/null || die "python3 가 필요하다: sudo apt-get install -y python3"
+json_str() { printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))'; }
+
+BODY=$(mktemp); JAR=$(mktemp)
+code=$($CURL -c "$JAR" -o "$BODY" -w '%{http_code}' -X POST "$BASE/api/admin/login" \
   -H 'Content-Type: application/json' \
-  --data-binary "$(printf '{"email":%s,"password":%s}' \
-    "$(printf '%s' "$EMAIL" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" \
-    "$(printf '%s' "$PASSWORD" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')")")
-[ "$code" = "200" ] || die "로그인 실패 (HTTP $code). 이메일과 비밀번호를 확인하라."
+  --data-binary "$(printf '{"email":%s,"password":%s}' "$(json_str "$EMAIL")" "$(json_str "$PASSWORD")")") \
+  || die "로그인 요청이 실패했다 (curl 종료코드 $?). $BASE 가 응답하지 않는다."
+if [ "$code" != "200" ]; then
+  # 서버가 뭐라고 했는지 보여준다. 코드만 보고는 이메일이 틀린 건지
+  # 비밀번호가 틀린 건지 잠긴 건지 구분할 수 없다.
+  die "로그인 실패 (HTTP $code)
+서버 응답: $(head -c 400 "$BODY")"
+fi
 say "로그인 완료"
 
 machines() {
-  $CURL -s -b "$JAR" "$BASE/api/admin/machines" | python3 -c "
+  $CURL -b "$JAR" "$BASE/api/admin/machines" | python3 -c "
 import sys,json
 d=json.load(sys.stdin); items = d if isinstance(d,list) else d.get('machines',d.get('items',[]))
 print(' '.join(m['code'] for m in items))"
@@ -79,7 +91,7 @@ if [ "$(printf '%s' "$CODES" | wc -w)" -lt 3 ]; then
   i=$(printf '%s' "$CODES" | wc -w)
   while [ "$i" -lt 3 ]; do
     i=$((i+1))
-    $CURL -s -b "$JAR" -o /dev/null -X POST "$BASE/api/admin/machines" \
+    $CURL -b "$JAR" -o /dev/null -X POST "$BASE/api/admin/machines" \
       -H 'Content-Type: application/json' \
       -d "{\"label\":\"${i}번 기계\",\"location\":\"데모\"}"
   done
@@ -101,7 +113,7 @@ seed() {
   local code=$1 issue=$2 amt=$3 phone=$4 pay=$5; shift 5
   local args=(); for kv in "$@"; do args+=(-F "$kv"); done
   local r
-  r=$($CURL -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/public/claims" \
+  r=$($CURL -o /dev/null -w '%{http_code}' -X POST "$BASE/api/public/claims" \
     -H "Idempotency-Key: demo-$(date +%s)-$n-$RANDOM" \
     -F "machineCode=$code" -F "issueType=$issue" -F "amountKrw=$amt" \
     -F "phone=$phone" -F "paymentMethod=$pay" "${args[@]}")
@@ -131,12 +143,12 @@ seed "$M3" cash_eaten 30000 01099990008 cash bankCode=004 accountNo=98765432109 
 seed "$M3" claw_broken 1000 01099990009 card cardLast4=7777
 
 say "두 건은 승인까지"
-IDS=$($CURL -s -b "$JAR" "$BASE/api/admin/claims?status=pending" | python3 -c "
+IDS=$($CURL -b "$JAR" "$BASE/api/admin/claims?status=pending" | python3 -c "
 import sys,json
 d=json.load(sys.stdin); items = d if isinstance(d,list) else d.get('claims',d.get('items',[]))
 print(' '.join(c['id'] for c in items[:2]))" 2>/dev/null)
 for id in $IDS; do
-  r=$($CURL -s -b "$JAR" -o /dev/null -w '%{http_code}' -X POST "$BASE/api/admin/claims/$id/approve" \
+  r=$($CURL -b "$JAR" -o /dev/null -w '%{http_code}' -X POST "$BASE/api/admin/claims/$id/approve" \
     -H 'Content-Type: application/json' -d '{}')
   printf '  승인 %s\n' "$r"
 done
