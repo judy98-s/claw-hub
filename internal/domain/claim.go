@@ -53,35 +53,150 @@ func ParseStatus(s string) (Status, error) {
 }
 
 // IssueType은 손님이 고른 증상이다.
+//
+// 코드는 **전역에서 한 뜻만** 갖는다. 업종마다 같은 코드를 다른 뜻으로
+// 쓰면 (세탁 no_start="작동 안 함", 사진 no_start="촬영 안 됨") 집계와
+// Slack 알림에서 어느 뜻인지 알 수 없다. 그래서 업종 접두사를 붙이는
+// 대신 코드 자체를 겹치지 않게 지었다. 접두사를 붙이면 이미 저장된
+// claw 데이터를 전부 마이그레이션해야 한다.
 type IssueType string
 
 const (
+	// 공통
+	IssueOther IssueType = "other" // 기타
+
+	// 인형뽑기
 	IssueDollStuck  IssueType = "doll_stuck"  // 인형 걸림
 	IssueCashEaten  IssueType = "cash_eaten"  // 돈만 빠짐 (현금·카드 공통)
 	IssueClawBroken IssueType = "claw_broken" // 집게 불량
-	IssueOther      IssueType = "other"       // 기타
+
+	// 무인세탁
+	IssueNoStart    IssueType = "no_start"    // 작동 안 함
+	IssueStoppedMid IssueType = "stopped_mid" // 중간에 멈춤
+	IssueNotDry     IssueType = "not_dry"     // 건조 덜 됨
+
+	// 코인노래방
+	IssueNoCredit  IssueType = "no_credit"  // 곡 수 안 올라감
+	IssueMicBroken IssueType = "mic_broken" // 마이크 고장
+	IssueCutOff    IssueType = "cut_off"    // 중간에 끊김
+
+	// 무인사진관
+	IssueNoPrint  IssueType = "no_print"  // 사진 안 나옴
+	IssueBadPrint IssueType = "bad_print" // 인화 불량
+	IssueNoShoot  IssueType = "no_shoot"  // 촬영 안 됨
+
+	// 스터디카페
+	IssueNoSeat       IssueType = "no_seat"       // 좌석 배정 안 됨
+	IssueDoorLocked   IssueType = "door_locked"   // 출입문 안 열림
+	IssueDoubleCharge IssueType = "double_charge" // 두 번 결제
+
+	// 무인카페
+	IssueNoDrink    IssueType = "no_drink"    // 음료 안 나옴
+	IssueNoCup      IssueType = "no_cup"      // 컵 안 나옴
+	IssueWrongDrink IssueType = "wrong_drink" // 다른 음료
 )
 
+// storeIssues는 업종별 증상 목록이다. 손님 화면에 보이는 순서 그대로다.
+//
+// docs/stores.json 이 디자인 원본이고, web/lib/stores.ts 와 이 표가 같은
+// 값을 들고 있어야 한다. 세 군데가 어긋나면 손님이 고른 증상이 서버에서
+// 400 으로 떨어진다 — 손님은 이유를 알 수 없고 그냥 떠난다.
+// 어긋나지 않도록 docs/stores.json 과 대조하는 테스트를 둔다.
+var storeIssues = map[StoreType][]IssueType{
+	StoreClaw:    {IssueDollStuck, IssueCashEaten, IssueClawBroken, IssueOther},
+	StoreLaundry: {IssueNoStart, IssueStoppedMid, IssueNotDry, IssueOther},
+	StoreKaraoke: {IssueNoCredit, IssueMicBroken, IssueCutOff, IssueOther},
+	StorePhoto:   {IssueNoPrint, IssueBadPrint, IssueNoShoot, IssueOther},
+	StoreStudy:   {IssueNoSeat, IssueDoorLocked, IssueDoubleCharge, IssueOther},
+	StoreCafe:    {IssueNoDrink, IssueNoCup, IssueWrongDrink, IssueOther},
+}
+
+// IssuesFor는 그 업종에서 손님이 고를 수 있는 증상이다.
+// 모르는 업종이면 인형뽑기로 떨어뜨린다 — NormalizeStoreType 과 같은 규칙이다.
+func IssuesFor(st StoreType) []IssueType {
+	if v, ok := storeIssues[st]; ok {
+		return v
+	}
+	return storeIssues[StoreClaw]
+}
+
+// ValidIssueFor는 그 업종에서 받을 수 있는 증상인지 본다.
+//
+// ParseIssueType 만으로는 부족하다. 그건 "서버가 아는 코드인가"만 보므로,
+// 뽑기방 기계에 세탁기 증상을 보내는 요청이 통과한다. 그러면 집계가
+// 조용히 더러워지고, 사장님 화면에 "7번 기계 · 건조 덜 됨"이 뜬다.
+func ValidIssueFor(st StoreType, it IssueType) bool {
+	for _, v := range IssuesFor(st) {
+		if v == it {
+			return true
+		}
+	}
+	return false
+}
+
+// AllIssueTypes는 모든 업종의 증상을 합친 것이다. 중복은 없다.
+//
+// 저장된 코드를 라벨로 바꿀 때와, 업종을 모르는 자리(집계·알림)에서 쓴다.
 func AllIssueTypes() []IssueType {
-	return []IssueType{IssueDollStuck, IssueCashEaten, IssueClawBroken, IssueOther}
+	out := make([]IssueType, 0, len(issueLabels))
+	seen := map[IssueType]bool{}
+	for _, st := range AllStoreTypes() {
+		for _, it := range IssuesFor(st) {
+			if !seen[it] {
+				seen[it] = true
+				out = append(out, it)
+			}
+		}
+	}
+	return out
 }
 
 var issueLabels = map[IssueType]string{
+	IssueOther: "기타",
+
 	IssueDollStuck: "인형 걸림",
 	// "현금 먹음"이 아니라 "돈만 빠짐"이다. 결제 수단을 따로 묻게 된
 	// 뒤로는, 카드 결제 건이 "7번 기계 · 현금 먹음 · 카드"로 표시된다.
 	IssueCashEaten:  "돈만 빠짐",
 	IssueClawBroken: "집게 불량",
-	IssueOther:      "기타",
+
+	IssueNoStart:    "작동 안 함",
+	IssueStoppedMid: "중간에 멈춤",
+	IssueNotDry:     "건조 덜 됨",
+
+	IssueNoCredit:  "곡 수 안 올라감",
+	IssueMicBroken: "마이크 고장",
+	IssueCutOff:    "중간에 끊김",
+
+	IssueNoPrint:  "사진 안 나옴",
+	IssueBadPrint: "인화 불량",
+	IssueNoShoot:  "촬영 안 됨",
+
+	IssueNoSeat:       "좌석 배정 안 됨",
+	IssueDoorLocked:   "출입문 안 열림",
+	IssueDoubleCharge: "두 번 결제",
+
+	IssueNoDrink:    "음료 안 나옴",
+	IssueNoCup:      "컵 안 나옴",
+	IssueWrongDrink: "다른 음료",
 }
 
-func (i IssueType) Label() string { return issueLabels[i] }
+// Label은 업종을 몰라도 쓸 수 있다. 코드가 전역에서 한 뜻이므로
+// 업종을 넘겨받을 필요가 없다 — 집계·Slack 에서 이게 중요하다.
+func (i IssueType) Label() string {
+	if v, ok := issueLabels[i]; ok {
+		return v
+	}
+	// 저장된 코드를 지운 뒤에도 과거 민원은 열려야 한다. 빈칸보다
+	// 코드가 낫다 — 적어도 무슨 일이 있었는지 추적할 수 있다.
+	return string(i)
+}
 
+// ParseIssueType은 서버가 아는 코드인지만 본다. 업종까지 맞는지는
+// ValidIssueFor 가 본다 — 접수 경로에서는 둘 다 통과해야 한다.
 func ParseIssueType(s string) (IssueType, error) {
-	for _, v := range AllIssueTypes() {
-		if string(v) == s {
-			return v, nil
-		}
+	if _, ok := issueLabels[IssueType(s)]; ok {
+		return IssueType(s), nil
 	}
 	return "", fmt.Errorf("알 수 없는 증상: %q", s)
 }

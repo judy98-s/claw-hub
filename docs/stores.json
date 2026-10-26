@@ -1,15 +1,237 @@
 {
   "_note": "매장 종류별 설정. 손님 폼·대시보드·QR 스티커가 이 값으로 바뀐다. issues 의 value 는 서버 enum 으로 맞춰서 쓴다.",
-  "claw":    { "label": "인형뽑기",   "character": "ppobi",    "characterName": "뽑이",   "animal": "rabbit",  "prop": "claw",   "tint": "#F9CDD6", "accentText": "#C45A74", "unitLabel": "7번 기계",   "stickerHeadline": "돈만 먹었나요?",
-    "issues": [["doll_stuck","인형 걸림","집었는데 중간에 걸렸어요"],["cash_eaten","돈만 빠짐","결제는 됐는데 안 움직여요"],["claw_broken","집게 불량","집는 힘이 너무 약해요"],["other","기타","그 외 문제"]], "quickAmounts": [1000,2000,3000,5000] },
-  "laundry": { "label": "무인세탁",   "character": "ppoksong", "characterName": "뽀송이", "animal": "puppy",   "prop": "towel",  "tint": "#C6DEF2", "accentText": "#3F6E99", "unitLabel": "3번 세탁기", "stickerHeadline": "세탁기가 멈췄나요?",
-    "issues": [["no_start","작동 안 함","결제했는데 시작을 안 해요"],["stopped","중간에 멈춤","돌다가 멈췄어요"],["not_dry","건조 덜 됨","시간이 끝났는데 젖어 있어요"],["other","기타","세제 안 나옴 · 문 안 열림"]], "quickAmounts": [3000,4000,5000,7000] },
-  "karaoke": { "label": "코인노래방", "character": "lala",     "characterName": "랄라",   "animal": "cat",     "prop": "mic",    "tint": "#FFD3A8", "accentText": "#C26A2A", "unitLabel": "5번 방",     "stickerHeadline": "곡이 안 올라갔나요?",
-    "issues": [["no_credit","곡 수 안 올라감","넣었는데 0곡이에요"],["mic_broken","마이크 고장","소리가 안 나와요"],["cut_off","중간에 끊김","부르다가 꺼졌어요"],["other","기타","그 외 문제"]], "quickAmounts": [500,1000,2000,5000] },
-  "photo":   { "label": "무인사진관", "character": "chalkak",  "characterName": "찰칵이", "animal": "bear",    "prop": "camera", "tint": "#FFF0B8", "accentText": "#A8821C", "unitLabel": "2번 부스",   "stickerHeadline": "사진이 안 나왔나요?",
-    "issues": [["no_print","사진 안 나옴","찍었는데 인화가 안 돼요"],["bad_print","인화 불량","줄이 가거나 색이 이상해요"],["no_start","촬영 안 됨","결제했는데 화면이 그대로예요"],["other","기타","QR 다운로드 안 됨 등"]], "quickAmounts": [4000,5000,6000,8000] },
-  "study":   { "label": "스터디카페", "character": "ttobak",   "characterName": "또박이", "animal": "hamster", "prop": "study",  "tint": "#CFE5C2", "accentText": "#4F7D43", "unitLabel": "키오스크",   "stickerHeadline": "결제가 꼬였나요?",
-    "issues": [["no_seat","좌석 배정 안 됨","결제했는데 좌석이 없어요"],["door","출입문 안 열림","입장 QR이 안 먹혀요"],["double","두 번 결제","한 번 샀는데 두 번 빠졌어요"],["other","기타","그 외 문제"]], "quickAmounts": [2000,3000,5000,10000] },
-  "cafe":    { "label": "무인카페",   "character": "monggeul", "characterName": "몽글이", "animal": "sheep",   "prop": "cup",    "tint": "#E6D6F0", "accentText": "#7A5A92", "unitLabel": "1번 커피머신", "stickerHeadline": "음료가 안 나왔나요?",
-    "issues": [["no_drink","음료 안 나옴","결제했는데 그대로예요"],["no_cup","컵 안 나옴","음료가 그냥 흘러요"],["wrong","다른 음료","고른 것과 달라요"],["other","기타","얼음 안 나옴 등"]], "quickAmounts": [1500,2000,3000,4500] }
+  "claw": {
+    "label": "인형뽑기",
+    "character": "ppobi",
+    "characterName": "뽑이",
+    "animal": "rabbit",
+    "prop": "claw",
+    "tint": "#F9CDD6",
+    "accentText": "#C45A74",
+    "unitLabel": "7번 기계",
+    "stickerHeadline": "돈만 먹었나요?",
+    "issues": [
+      [
+        "doll_stuck",
+        "인형 걸림",
+        "집었는데 중간에 걸렸어요"
+      ],
+      [
+        "cash_eaten",
+        "돈만 빠짐",
+        "결제는 됐는데 안 움직여요"
+      ],
+      [
+        "claw_broken",
+        "집게 불량",
+        "집는 힘이 너무 약해요"
+      ],
+      [
+        "other",
+        "기타",
+        "그 외 문제"
+      ]
+    ],
+    "quickAmounts": [
+      1000,
+      2000,
+      3000,
+      5000
+    ]
+  },
+  "laundry": {
+    "label": "무인세탁",
+    "character": "ppoksong",
+    "characterName": "뽀송이",
+    "animal": "puppy",
+    "prop": "towel",
+    "tint": "#C6DEF2",
+    "accentText": "#3F6E99",
+    "unitLabel": "3번 세탁기",
+    "stickerHeadline": "세탁기가 멈췄나요?",
+    "issues": [
+      [
+        "no_start",
+        "작동 안 함",
+        "결제했는데 시작을 안 해요"
+      ],
+      [
+        "stopped_mid",
+        "중간에 멈춤",
+        "돌다가 멈췄어요"
+      ],
+      [
+        "not_dry",
+        "건조 덜 됨",
+        "시간이 끝났는데 젖어 있어요"
+      ],
+      [
+        "other",
+        "기타",
+        "세제 안 나옴 · 문 안 열림"
+      ]
+    ],
+    "quickAmounts": [
+      3000,
+      4000,
+      5000,
+      7000
+    ]
+  },
+  "karaoke": {
+    "label": "코인노래방",
+    "character": "lala",
+    "characterName": "랄라",
+    "animal": "cat",
+    "prop": "mic",
+    "tint": "#FFD3A8",
+    "accentText": "#C26A2A",
+    "unitLabel": "5번 방",
+    "stickerHeadline": "곡이 안 올라갔나요?",
+    "issues": [
+      [
+        "no_credit",
+        "곡 수 안 올라감",
+        "넣었는데 0곡이에요"
+      ],
+      [
+        "mic_broken",
+        "마이크 고장",
+        "소리가 안 나와요"
+      ],
+      [
+        "cut_off",
+        "중간에 끊김",
+        "부르다가 꺼졌어요"
+      ],
+      [
+        "other",
+        "기타",
+        "그 외 문제"
+      ]
+    ],
+    "quickAmounts": [
+      500,
+      1000,
+      2000,
+      5000
+    ]
+  },
+  "photo": {
+    "label": "무인사진관",
+    "character": "chalkak",
+    "characterName": "찰칵이",
+    "animal": "bear",
+    "prop": "camera",
+    "tint": "#FFF0B8",
+    "accentText": "#A8821C",
+    "unitLabel": "2번 부스",
+    "stickerHeadline": "사진이 안 나왔나요?",
+    "issues": [
+      [
+        "no_print",
+        "사진 안 나옴",
+        "찍었는데 인화가 안 돼요"
+      ],
+      [
+        "bad_print",
+        "인화 불량",
+        "줄이 가거나 색이 이상해요"
+      ],
+      [
+        "no_shoot",
+        "촬영 안 됨",
+        "결제했는데 화면이 그대로예요"
+      ],
+      [
+        "other",
+        "기타",
+        "QR 다운로드 안 됨 등"
+      ]
+    ],
+    "quickAmounts": [
+      4000,
+      5000,
+      6000,
+      8000
+    ]
+  },
+  "study": {
+    "label": "스터디카페",
+    "character": "ttobak",
+    "characterName": "또박이",
+    "animal": "hamster",
+    "prop": "study",
+    "tint": "#CFE5C2",
+    "accentText": "#4F7D43",
+    "unitLabel": "키오스크",
+    "stickerHeadline": "결제가 꼬였나요?",
+    "issues": [
+      [
+        "no_seat",
+        "좌석 배정 안 됨",
+        "결제했는데 좌석이 없어요"
+      ],
+      [
+        "door_locked",
+        "출입문 안 열림",
+        "입장 QR이 안 먹혀요"
+      ],
+      [
+        "double_charge",
+        "두 번 결제",
+        "한 번 샀는데 두 번 빠졌어요"
+      ],
+      [
+        "other",
+        "기타",
+        "그 외 문제"
+      ]
+    ],
+    "quickAmounts": [
+      2000,
+      3000,
+      5000,
+      10000
+    ]
+  },
+  "cafe": {
+    "label": "무인카페",
+    "character": "monggeul",
+    "characterName": "몽글이",
+    "animal": "sheep",
+    "prop": "cup",
+    "tint": "#E6D6F0",
+    "accentText": "#7A5A92",
+    "unitLabel": "1번 커피머신",
+    "stickerHeadline": "음료가 안 나왔나요?",
+    "issues": [
+      [
+        "no_drink",
+        "음료 안 나옴",
+        "결제했는데 그대로예요"
+      ],
+      [
+        "no_cup",
+        "컵 안 나옴",
+        "음료가 그냥 흘러요"
+      ],
+      [
+        "wrong_drink",
+        "다른 음료",
+        "고른 것과 달라요"
+      ],
+      [
+        "other",
+        "기타",
+        "얼음 안 나옴 등"
+      ]
+    ],
+    "quickAmounts": [
+      1500,
+      2000,
+      3000,
+      4500
+    ]
+  }
 }

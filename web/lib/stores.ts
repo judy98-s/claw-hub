@@ -60,7 +60,7 @@ export const STORES: Record<StoreType, StoreConfig> = {
     stickerHeadline: "세탁기가 멈췄나요?",
     issues: [
       { value: "no_start", label: "작동 안 함", hint: "결제했는데 시작을 안 해요" },
-      { value: "stopped", label: "중간에 멈춤", hint: "돌다가 멈췄어요" },
+      { value: "stopped_mid", label: "중간에 멈춤", hint: "돌다가 멈췄어요" },
       { value: "not_dry", label: "건조 덜 됨", hint: "시간이 끝났는데 젖어 있어요" },
       { value: "other", label: "기타", hint: "세제 안 나옴 · 문 안 열림" },
     ],
@@ -93,7 +93,7 @@ export const STORES: Record<StoreType, StoreConfig> = {
     issues: [
       { value: "no_print", label: "사진 안 나옴", hint: "찍었는데 인화가 안 돼요" },
       { value: "bad_print", label: "인화 불량", hint: "줄이 가거나 색이 이상해요" },
-      { value: "no_start", label: "촬영 안 됨", hint: "결제했는데 화면이 그대로예요" },
+      { value: "no_shoot", label: "촬영 안 됨", hint: "결제했는데 화면이 그대로예요" },
       { value: "other", label: "기타", hint: "QR 다운로드 안 됨 등" },
     ],
     quickAmounts: [4000, 5000, 6000, 8000],
@@ -108,8 +108,8 @@ export const STORES: Record<StoreType, StoreConfig> = {
     stickerHeadline: "결제가 꼬였나요?",
     issues: [
       { value: "no_seat", label: "좌석 배정 안 됨", hint: "결제했는데 좌석이 없어요" },
-      { value: "door", label: "출입문 안 열림", hint: "입장 QR이 안 먹혀요" },
-      { value: "double", label: "두 번 결제", hint: "한 번 샀는데 두 번 빠졌어요" },
+      { value: "door_locked", label: "출입문 안 열림", hint: "입장 QR이 안 먹혀요" },
+      { value: "double_charge", label: "두 번 결제", hint: "한 번 샀는데 두 번 빠졌어요" },
       { value: "other", label: "기타", hint: "그 외 문제" },
     ],
     quickAmounts: [2000, 3000, 5000, 10000],
@@ -125,7 +125,7 @@ export const STORES: Record<StoreType, StoreConfig> = {
     issues: [
       { value: "no_drink", label: "음료 안 나옴", hint: "결제했는데 그대로예요" },
       { value: "no_cup", label: "컵 안 나옴", hint: "음료가 그냥 흘러요" },
-      { value: "wrong", label: "다른 음료", hint: "고른 것과 달라요" },
+      { value: "wrong_drink", label: "다른 음료", hint: "고른 것과 달라요" },
       { value: "other", label: "기타", hint: "얼음 안 나옴 등" },
     ],
     quickAmounts: [1500, 2000, 3000, 4500],

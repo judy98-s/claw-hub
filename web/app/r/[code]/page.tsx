@@ -5,6 +5,8 @@ type MachineInfo = {
   label: string;
   storeName: string;
   storePhone: string;
+  storeType: string;
+  issues: { value: string; label: string }[];
   reviewThresholdKrw: number;
   maxAmountKrw: number;
   maxPhotos: number;

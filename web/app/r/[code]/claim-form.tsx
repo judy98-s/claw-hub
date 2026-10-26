@@ -19,12 +19,17 @@ import { krw } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/field";
 import { PreviewImage } from "@/components/ui/preview-image";
+import { storeConfig } from "@/lib/stores";
 
 type Machine = {
   code: string;
   label: string;
   storeName: string;
   storePhone: string;
+  /** 업종. 캐릭터·빠른 금액·기계를 부르는 말이 이 값으로 갈린다. */
+  storeType: string;
+  /** 고를 수 있는 증상. 서버가 내려주는 목록을 그대로 쓴다. */
+  issues: { value: string; label: string }[];
   reviewThresholdKrw: number;
   maxAmountKrw: number;
   maxPhotos: number;
@@ -33,20 +38,23 @@ type Machine = {
 type Bank = { code: string; name: string };
 
 /**
- * 증상 선택지.
+ * 증상 선택지는 서버가 내려준다 (machine.issues).
  *
- * 드롭다운이 아니라 큰 버튼 4개다. 길에서 한 손으로 쓰는 화면에서
- * select 를 열고 고르는 건 탭 두 번에 스크롤이고, 그만큼 이탈한다.
+ * 전에는 여기에 인형뽑기 네 개를 박아 두고 있었다. 그래서 무인세탁
+ * 손님에게도 "인형 걸림"이 보였고, 고를 수 있는 게 "기타" 하나였다.
+ * 거절하는 쪽(서버)이 목록을 정해야 한다.
+ *
+ * 설명 문구(hint)만 여기서 붙인다. 서버가 알 필요 없는 copy 다.
+ * 서버에 있고 여기 없는 코드는 hint 없이 라벨만 보인다 — 업종을 추가할 때
+ * 프런트 배포를 기다리지 않아도 화면이 동작해야 한다.
+ *
+ * 드롭다운이 아니라 큰 버튼이다. 길에서 한 손으로 쓰는 화면에서 select 를
+ * 열고 고르는 건 탭 두 번에 스크롤이고, 그만큼 이탈한다.
  */
-const ISSUES = [
-  { value: "doll_stuck", label: "인형 걸림", hint: "집었는데 중간에 걸렸어요" },
-  { value: "cash_eaten", label: "돈만 빠짐", hint: "결제는 됐는데 안 나와요" },
-  { value: "claw_broken", label: "집게 불량", hint: "집는 힘이 너무 약해요" },
-  { value: "other", label: "기타", hint: "그 외 문제" },
-] as const;
 
-/** 자주 넣는 금액. 대부분은 여기서 한 번에 끝난다. */
-const QUICK_AMOUNTS = [1000, 2000, 3000, 5000];
+function hintFor(storeType: string, value: string): string {
+  return storeConfig(storeType).issues.find((i) => i.value === value)?.hint ?? "";
+}
 
 /**
  * 결제 수단. 이 선택 하나로 아래 절반이 바뀐다.
@@ -68,6 +76,8 @@ export function ClaimForm({
   banks: Bank[];
 }) {
   const router = useRouter();
+  // 업종별 빠른 금액. 뽑기방 1,000원과 무인사진관 5,000원은 다른 숫자다.
+  const quickAmounts = storeConfig(machine.storeType).quickAmounts;
 
   const [issueType, setIssueType] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
@@ -187,8 +197,9 @@ export function ClaimForm({
             어떤 문제인가요? <span className="text-stop-600">*</span>
           </legend>
           <div className="grid grid-cols-2 gap-2">
-            {ISSUES.map((issue) => {
+            {machine.issues.map((issue) => {
               const on = issueType === issue.value;
+              const hint = hintFor(machine.storeType, issue.value);
               return (
                 <button
                   key={issue.value}
@@ -204,11 +215,13 @@ export function ClaimForm({
                   ].join(" ")}
                 >
                   <span className="font-semibold">{issue.label}</span>
-                  <span
-                    className={`text-xs ${on ? "text-ink" : "text-[var(--muted)]"}`}
-                  >
-                    {issue.hint}
-                  </span>
+                  {hint && (
+                    <span
+                      className={`text-xs ${on ? "text-ink" : "text-[var(--muted)]"}`}
+                    >
+                      {hint}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -219,7 +232,7 @@ export function ClaimForm({
         <Field label="잃어버린 금액" required>
           <div className="grid gap-2">
             <div className="grid grid-cols-4 gap-2">
-              {QUICK_AMOUNTS.map((a) => (
+              {quickAmounts.map((a) => (
                 <button
                   key={a}
                   type="button"

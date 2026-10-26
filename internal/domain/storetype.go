@@ -45,6 +45,15 @@ func StoreTypes() []struct {
 	return out
 }
 
+// AllStoreTypes는 업종 키만 화면 순서대로 반환한다.
+func AllStoreTypes() []StoreType {
+	out := make([]StoreType, 0, len(storeTypeLabels))
+	for _, t := range storeTypeLabels {
+		out = append(out, t.Type)
+	}
+	return out
+}
+
 // ValidStoreType은 아는 업종인지 본다.
 func ValidStoreType(s string) bool {
 	for _, t := range storeTypeLabels {

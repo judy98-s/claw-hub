@@ -691,3 +691,136 @@ func TestCreateClaim_다른_멱등키의_빠른재제출은_여전히_막는다(
 		t.Errorf("claim %d건, want 1", h.store.claimCount())
 	}
 }
+
+// setStoreType은 가짜 저장소의 업종을 바꾼다. 기계 조회가 StoreInfo 를
+// 함께 내려주므로, 접수 경로의 업종 검증이 이 값을 본다.
+func (h *harness) setStoreType(st domain.StoreType) {
+	h.store.mu.Lock()
+	defer h.store.mu.Unlock()
+	h.store.info.Type = st
+}
+
+// 서버가 claw 증상 네 개만 알던 동안, 무인세탁 손님이 "건조 덜 됨"을
+// 고르면 400 이 떨어졌다. 업종 확장의 핵심 회귀 테스트다.
+func TestCreateClaim_업종별_증상을_받는다(t *testing.T) {
+	cases := []struct {
+		store domain.StoreType
+		issue string
+	}{
+		{domain.StoreClaw, "doll_stuck"},
+		{domain.StoreLaundry, "not_dry"},
+		{domain.StoreLaundry, "stopped_mid"},
+		{domain.StoreKaraoke, "no_credit"},
+		{domain.StorePhoto, "no_shoot"},
+		{domain.StoreStudy, "double_charge"},
+		{domain.StoreCafe, "wrong_drink"},
+	}
+	for i, c := range cases {
+		t.Run(string(c.store)+"/"+c.issue, func(t *testing.T) {
+			h := newHarness(t)
+			h.setStoreType(c.store)
+
+			f := defaultForm()
+			f.issueType = c.issue
+			rec := h.postClaim(f, fmt.Sprintf("key-%d", i))
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+			}
+		})
+	}
+
+	// 기타는 모든 업종에서 받아야 한다. 고를 게 없으면 손님은 전화한다.
+	for i, st := range domain.AllStoreTypes() {
+		h := newHarness(t)
+		h.setStoreType(st)
+		f := defaultForm()
+		f.issueType = "other"
+		if rec := h.postClaim(f, fmt.Sprintf("other-%d", i)); rec.Code != http.StatusCreated {
+			t.Errorf("%s 에서 기타가 거절됐다: %d %s", st, rec.Code, rec.Body)
+		}
+	}
+}
+
+// 업종이 다른 증상은 거절한다. 조용히 받으면 집계가 더러워지고
+// 사장님 화면에 "3번 기계 · 건조 덜 됨" 같은 줄이 생긴다.
+func TestCreateClaim_업종이_다른_증상은_거절한다(t *testing.T) {
+	cases := []struct {
+		store domain.StoreType
+		issue string
+	}{
+		{domain.StoreClaw, "not_dry"},       // 뽑기방에 세탁기 증상
+		{domain.StoreLaundry, "doll_stuck"}, // 세탁소에 인형 걸림
+		{domain.StoreLaundry, "no_shoot"},   // 세탁소에 사진관 증상
+		{domain.StoreCafe, "mic_broken"},    // 카페에 노래방 증상
+	}
+	for i, c := range cases {
+		t.Run(string(c.store)+"/"+c.issue, func(t *testing.T) {
+			h := newHarness(t)
+			h.setStoreType(c.store)
+
+			f := defaultForm()
+			f.issueType = c.issue
+			rec := h.postClaim(f, fmt.Sprintf("cross-%d", i))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body)
+			}
+			// 접수가 남으면 안 된다. 거절은 거절이어야 한다.
+			if n := h.store.claimCount(); n != 0 {
+				t.Errorf("거절했는데 접수 %d건이 남았다", n)
+			}
+		})
+	}
+}
+
+// 서버가 아예 모르는 코드. 손님이 보낼 수 없는 값이지만, 직접 POST 하는
+// 쪽을 막아야 한다.
+func TestCreateClaim_모르는_증상_코드(t *testing.T) {
+	h := newHarness(t)
+	f := defaultForm()
+	f.issueType = "definitely_not_an_issue"
+	if rec := h.postClaim(f, "key-unknown"); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+// 손님 폼은 이 목록을 그대로 그린다. 서버가 거절할 증상을 보여주면
+// 손님은 고르고 제출한 뒤에야 에러를 본다.
+func TestMachineByCode_업종에_맞는_증상_목록을_내려준다(t *testing.T) {
+	for _, st := range domain.AllStoreTypes() {
+		h := newHarness(t)
+		h.setStoreType(st)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/public/machines/ABCD23", nil)
+		rec := httptest.NewRecorder()
+		h.mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, body = %s", st, rec.Code, rec.Body)
+		}
+
+		var res machineResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		if res.StoreType != string(st) {
+			t.Errorf("%s: storeType = %q", st, res.StoreType)
+		}
+
+		want := domain.IssuesFor(st)
+		if len(res.Issues) != len(want) {
+			t.Fatalf("%s: 증상 %d개, want %d개", st, len(res.Issues), len(want))
+		}
+		for i, opt := range res.Issues {
+			if opt.Value != string(want[i]) {
+				t.Errorf("%s[%d]: value = %q, want %q", st, i, opt.Value, want[i])
+			}
+			if opt.Label == "" {
+				t.Errorf("%s[%d] %s: 라벨이 비었다", st, i, opt.Value)
+			}
+			// 내려준 목록은 전부 접수가 통과해야 한다. 이 둘이 갈라지면
+			// 손님에게 보여주고 거절하는 화면이 된다.
+			if !domain.ValidIssueFor(st, domain.IssueType(opt.Value)) {
+				t.Errorf("%s: %q 를 보여주는데 접수에서는 거절한다", st, opt.Value)
+			}
+		}
+	}
+}

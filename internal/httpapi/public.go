@@ -38,10 +38,31 @@ type machineResponse struct {
 	StorePhone string `json:"storePhone"`
 	// StoreType은 업종이다. 손님 폼의 캐릭터·증상 목록·빠른 금액이
 	// 이 값으로 갈린다.
-	StoreType          string `json:"storeType"`
-	ReviewThresholdKRW int    `json:"reviewThresholdKrw"`
-	MaxAmountKRW       int    `json:"maxAmountKrw"`
-	MaxPhotos          int    `json:"maxPhotos"`
+	StoreType string `json:"storeType"`
+	// Issues는 이 매장에서 고를 수 있는 증상이다. 화면에 보일 순서 그대로다.
+	//
+	// 프런트가 자기 표만 보고 그리면, 서버가 받지 않는 증상을 손님에게
+	// 보여줄 수 있다. 손님은 고르고 제출한 뒤에야 400 을 본다. 목록은
+	// 서버가 내려주는 쪽이 맞다 — 거절하는 쪽이 목록을 정해야 한다.
+	// 설명 문구(hint)는 서버가 알 필요 없어서 프런트에 둔다.
+	Issues             []issueOption `json:"issues"`
+	ReviewThresholdKRW int           `json:"reviewThresholdKrw"`
+	MaxAmountKRW       int           `json:"maxAmountKrw"`
+	MaxPhotos          int           `json:"maxPhotos"`
+}
+
+type issueOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+func issueOptionsFor(st domain.StoreType) []issueOption {
+	its := domain.IssuesFor(st)
+	out := make([]issueOption, 0, len(its))
+	for _, it := range its {
+		out = append(out, issueOption{Value: string(it), Label: it.Label()})
+	}
+	return out
 }
 
 // handleMachineByCode는 QR 코드로 기계를 조회한다.
@@ -67,10 +88,12 @@ func (s *Server) handleMachineByCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	storeType := domain.NormalizeStoreType(string(info.Type))
 	writeJSON(w, http.StatusOK, machineResponse{
 		Code: m.Code, Label: m.Label,
 		StoreName: info.Name, StorePhone: info.Phone,
-		StoreType:          string(domain.NormalizeStoreType(string(info.Type))),
+		StoreType:          string(storeType),
+		Issues:             issueOptionsFor(storeType),
 		ReviewThresholdKRW: s.policy.ReviewThresholdKRW,
 		MaxAmountKRW:       s.policy.MaxAmountKRW,
 		MaxPhotos:          maxPhotos,
@@ -143,13 +166,24 @@ func (s *Server) handleCreateClaim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 기계 확인이 먼저다. 없는 기계면 사진을 한 장도 쓰지 않고 끝낸다.
-	m, _, err := s.store.MachineByCode(ctx, in.machineCode)
+	m, info, err := s.store.MachineByCode(ctx, in.machineCode)
 	if errors.Is(err, store.ErrNotFound) {
 		notFound(w, "이 스티커의 기계를 찾을 수 없습니다. 매장에 직접 문의해주세요.")
 		return
 	}
 	if err != nil {
 		internalError(w, r, err, "기계 조회 실패")
+		return
+	}
+
+	// 증상이 이 업종의 것인지는 기계를 찾은 뒤에야 알 수 있다.
+	// parseClaimForm 은 "서버가 아는 코드인가"까지만 본다.
+	//
+	// 조용히 받아 두면 집계가 더러워지고, 사장님 화면에
+	// "7번 기계 · 건조 덜 됨" 같은 줄이 생긴다.
+	storeType := domain.NormalizeStoreType(string(info.Type))
+	if !domain.ValidIssueFor(storeType, in.issueType) {
+		badRequest(w, "이 매장에서 고를 수 없는 증상입니다. 페이지를 새로고침한 뒤 다시 선택해주세요.")
 		return
 	}
 
